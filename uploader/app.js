@@ -237,13 +237,15 @@ class UploaderApp {
   renderNavSection() {
     const wrap = document.createElement('div');
     wrap.style.marginTop = 'var(--spacing-lg)';
-    wrap.style.textAlign = 'center';
+    wrap.style.display = 'flex';
+    wrap.style.justifyContent = 'center';
 
     const link = document.createElement('a');
     link.href = '../';
-    link.className = 'btn btn-secondary btn-sm';
-    link.style.textDecoration = 'none';
-    link.innerHTML = `${Icons.svg('arrowLeft', { size: 16 })}<span>Ir a la app de Auditoría</span>`;
+    link.className = 'icon-nav-btn';
+    link.title = 'Ir a la app de Auditoría';
+    link.setAttribute('aria-label', 'Ir a la app de Auditoría');
+    link.innerHTML = Icons.svg('scan', { size: 20 });
     wrap.appendChild(link);
     return wrap;
   }

@@ -337,11 +337,11 @@ class FormApp {
   renderPassphraseSection() {
     const wrap = document.createElement('div');
     wrap.style.marginTop = 'var(--spacing-lg)';
-    wrap.style.textAlign = 'center';
     wrap.style.display = 'flex';
-    wrap.style.flexDirection = 'column';
+    wrap.style.flexDirection = 'row';
     wrap.style.gap = 'var(--spacing-sm)';
     wrap.style.alignItems = 'center';
+    wrap.style.justifyContent = 'center';
 
     const hasPassphrase = !!CryptoEngine.getSessionPassphrase();
     const btn = document.createElement('button');
@@ -366,9 +366,10 @@ class FormApp {
     // abajo, así que es un link relativo normal.
     const navLink = document.createElement('a');
     navLink.href = 'uploader/';
-    navLink.className = 'btn btn-secondary btn-sm';
-    navLink.style.textDecoration = 'none';
-    navLink.innerHTML = `${Icons.svg('arrowRight', { size: 16 })}<span>Ir a Catálogo de Estatus (uploader)</span>`;
+    navLink.className = 'icon-nav-btn';
+    navLink.title = 'Ir a Catálogo de Estatus';
+    navLink.setAttribute('aria-label', 'Ir a Catálogo de Estatus');
+    navLink.innerHTML = Icons.svg('clipboard', { size: 20 });
     wrap.appendChild(navLink);
 
     return wrap;
