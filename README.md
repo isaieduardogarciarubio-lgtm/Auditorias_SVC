@@ -12,23 +12,19 @@ punto de partida, reemplazando los 5 logs originales de Auditorías XMT1 por uno
   in_container` guarda automático "En contenedor"; si es distinto, guarda "No en contenedor" y pide
   foto de evidencia. `OPTIMIZADA` es informativa (se muestra y se guarda). Un Shipment ausente del
   catálogo bloquea el registro con opción de reintentar.
-- **Catálogo de estatus**: se carga como CSV plano (sin cifrar — es información operativa de
-  consulta, no auditoría sensible) desde el botón "Cargar catálogo" del menú; se cachea en
-  localStorage y se queda viviendo en la app hasta que se reemplaza por uno nuevo. Aviso grande y
-  persistente si lleva más de 1 hora sin actualizarse (o nunca se cargó).
+- **Catálogo de estatus**: la app de captura lo trae con un `fetch` estático a
+  `data/estatus_shipments.csv` + `data/estatus_shipments_meta.json` (sin cifrar — es información
+  operativa de consulta, no auditoría sensible), con `cache: 'no-store'` y un botón "Actualizar
+  catálogo" manual. Es el mismo archivo para todos — no vive en el localStorage de nadie. Aviso
+  grande y persistente si lleva más de 1 hora sin actualizarse (o nunca se publicó).
 - **App "uploader"** (`uploader/`): toma el CSV físico de estatus (con drag & drop), lo valida, y al
-  confirmar lo publica en el repo (`data/estatus_shipments.csv` + `data/estatus_shipments_meta.json`)
-  vía la API de contenidos de GitHub (`uploader/github-client.js`). GitHub Pages redespliega solo
-  (~1 min) y desde ahí **cualquier persona que abra la app de auditoría, en cualquier dispositivo**,
-  lee el mismo catálogo con un `fetch` estático — no es algo que viva en el navegador de quien lo
-  subió.
-  - **Nota de seguridad deliberada:** esto requiere un token de GitHub con permiso de escritura,
-    que el operador pega en el uploader y queda en el `localStorage` de *su* dispositivo (nunca en
-    el código fuente). Como el repo es público, ese código fuente — y por lo tanto cualquier token
-    que alguien deje embebido en él por error — es visible para cualquiera en internet. Usar
-    siempre un **fine-grained PAT acotado solo a este repo, con permiso único de Contents:
-    read/write**, y rotarlo periódicamente. Esta es una decisión consciente para lograr un
-    catálogo centralizado sin backend propio, no un descuido.
+  confirmar lo manda a un **Worker de Cloudflare** (`cloudflare-worker/`, desplegado en
+  `https://svc-audito.isaig-rubio.workers.dev/publish`), que hace el commit real a
+  `data/estatus_shipments.csv` + `data/estatus_shipments_meta.json` usando un token de GitHub que
+  vive como secreto del lado del Worker — nunca en el navegador ni en este repo. GitHub Pages
+  redespliega solo (~1 min) y desde ahí **cualquier persona que abra la app de auditoría, en
+  cualquier dispositivo**, lee el mismo catálogo. Cero fricción para quien publica: nada que pegar,
+  nada que configurar en el navegador.
 - **Navegación entre apps**: cada app enlaza a la otra desde el pie del menú, junto al botón de
   cambiar contraseña de encriptación (esa contraseña es solo para las auditorías exportadas hacia
   el dashboard — el catálogo de estatus no la usa).

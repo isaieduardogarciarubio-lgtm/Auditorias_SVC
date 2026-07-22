@@ -18,6 +18,11 @@ const STATUS_CATALOG_CSV_URL = '../data/estatus_shipments.csv';
 const STATUS_CATALOG_META_URL = '../data/estatus_shipments_meta.json';
 const STALE_MAX_AGE_MS = 60 * 60 * 1000;
 
+// Worker de Cloudflare que guarda el token de GitHub del lado del servidor
+// y hace el commit por nosotros — el navegador nunca ve ni maneja ningún
+// secreto. Ver cloudflare-worker/ en la raíz del repo para su código.
+const PUBLISH_WORKER_URL = 'https://svc-audito.isaig-rubio.workers.dev/publish';
+
 class UploaderApp {
   constructor() {
     this.parsedPreview = null; // { headers, records, rawText } del archivo recién elegido, sin publicar aún
@@ -102,7 +107,6 @@ class UploaderApp {
     content.appendChild(intro);
 
     content.appendChild(this.renderUploadCard());
-    content.appendChild(this.renderTokenSection());
     content.appendChild(this.renderNavSection());
 
     app.appendChild(content);
@@ -292,22 +296,19 @@ class UploaderApp {
   }
 
   async publishCatalog() {
-    if (!GitHubClient.getToken()) {
-      this.showAlert('Configura primero el token de GitHub (abajo en esta página)', 'error');
-      return;
-    }
-
     this.publishing = true;
     this.render();
 
     try {
-      const meta = JSON.stringify(
-        { generatedAt: new Date().toISOString(), rows: this.parsedPreview.records.length },
-        null,
-        2
-      );
-      await GitHubClient.putFile('data/estatus_shipments.csv', this.parsedPreview.rawText, 'Actualiza catálogo de estatus');
-      await GitHubClient.putFile('data/estatus_shipments_meta.json', meta, 'Actualiza metadata del catálogo de estatus');
+      const res = await fetch(PUBLISH_WORKER_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ csv: this.parsedPreview.rawText }),
+      });
+      const data = await res.json().catch(() => ({}));
+      if (!res.ok || !data.ok) {
+        throw new Error(data.detail || data.error || `HTTP ${res.status}`);
+      }
 
       this.publishing = false;
       this.parsedPreview = null;
@@ -339,69 +340,6 @@ class UploaderApp {
     `;
     document.body.appendChild(alertEl);
     setTimeout(() => alertEl.remove(), 4000);
-  }
-
-  /**
-   * Configuración del token de GitHub que necesita esta página para poder
-   * escribir en el repo. Vive solo en localStorage de este dispositivo —
-   * nunca en el código fuente, que es público.
-   */
-  renderTokenSection() {
-    const section = document.createElement('div');
-    section.className = 'card';
-    section.style.marginTop = 'var(--spacing-lg)';
-
-    const title = document.createElement('h3');
-    title.style.marginBottom = 'var(--spacing-sm)';
-    title.textContent = 'Token de GitHub';
-    section.appendChild(title);
-
-    const hasToken = !!GitHubClient.getToken();
-    const status = document.createElement('p');
-    status.style.color = 'var(--color-text-muted)';
-    status.style.fontSize = '0.9rem';
-    status.style.marginBottom = 'var(--spacing-md)';
-    status.textContent = hasToken
-      ? 'Configurado en este dispositivo.'
-      : 'Necesitas un fine-grained personal access token con acceso solo a este repo y permiso Contents: read/write.';
-    section.appendChild(status);
-
-    const inputWrap = document.createElement('div');
-    inputWrap.className = 'flex-row';
-    inputWrap.style.marginBottom = 'var(--spacing-sm)';
-
-    const input = document.createElement('input');
-    input.type = 'password';
-    input.className = 'step-input';
-    input.placeholder = 'github_pat_...';
-    input.style.fontSize = '1rem';
-    inputWrap.appendChild(input);
-    section.appendChild(inputWrap);
-
-    const saveBtn = document.createElement('button');
-    saveBtn.className = 'btn btn-secondary btn-block';
-    saveBtn.textContent = 'Guardar token';
-    saveBtn.addEventListener('click', () => {
-      const value = input.value.trim();
-      if (!value) return;
-      GitHubClient.setToken(value);
-      this.render();
-    });
-    section.appendChild(saveBtn);
-
-    if (hasToken) {
-      const clearBtn = document.createElement('button');
-      clearBtn.className = 'btn btn-secondary btn-block';
-      clearBtn.style.marginTop = 'var(--spacing-sm)';
-      clearBtn.textContent = 'Borrar token de este dispositivo';
-      clearBtn.addEventListener('click', () => {
-        GitHubClient.clearToken();
-        this.render();
-      });
-      section.appendChild(clearBtn);
-    }
-
-    return section;
   }
 
   /**
