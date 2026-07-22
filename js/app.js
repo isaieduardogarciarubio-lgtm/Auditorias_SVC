@@ -341,6 +341,10 @@ class FormApp {
     const wrap = document.createElement('div');
     wrap.style.marginTop = 'var(--spacing-lg)';
     wrap.style.textAlign = 'center';
+    wrap.style.display = 'flex';
+    wrap.style.flexDirection = 'column';
+    wrap.style.gap = 'var(--spacing-sm)';
+    wrap.style.alignItems = 'center';
 
     const hasPassphrase = !!CryptoEngine.getSessionPassphrase();
     const btn = document.createElement('button');
@@ -359,6 +363,17 @@ class FormApp {
       this.showMenu();
     });
     wrap.appendChild(btn);
+
+    // Botón para ir a la app "uploader" (cifra el catálogo físico de
+    // estatus) — vive en el mismo repo/sitio de GitHub Pages, un nivel
+    // abajo, así que es un link relativo normal.
+    const navLink = document.createElement('a');
+    navLink.href = 'uploader/';
+    navLink.className = 'btn btn-secondary btn-sm';
+    navLink.style.textDecoration = 'none';
+    navLink.innerHTML = `${Icons.svg('arrowRight', { size: 16 })}<span>Ir a Catálogo de Estatus (uploader)</span>`;
+    wrap.appendChild(navLink);
+
     return wrap;
   }
 
