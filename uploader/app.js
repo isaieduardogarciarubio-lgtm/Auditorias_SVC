@@ -2,19 +2,18 @@
  * Uploader de Catálogo de Estatus
  *
  * Toma el CSV físico (columnas ID, ESTATUS, OPTIMIZADA) que produce el
- * sistema de origen, valida que tenga las columnas correctas, muestra un
- * preview, y lo deja listo para descargar tal cual (sin cifrar — no es
- * auditoría sensible viajando fuera de Grid, es información operativa de
- * consulta). Ese archivo es el que se carga en el botón "Cargar catálogo"
- * del menú de la app de auditoría, y se queda viviendo ahí hasta que se
- * reemplace por uno nuevo.
+ * sistema de origen y valida que tenga las columnas correctas + un preview.
+ * No genera ni descarga ningún archivo nuevo — el archivo validado es el
+ * mismo que el operador ya tiene en su dispositivo; ese es el que sube tal
+ * cual en el botón "Cargar catálogo" del menú de la app de auditoría, donde
+ * se queda viviendo hasta que se reemplace por uno nuevo.
  *
  * A propósito NO usa form-engine.js: no es un asistente de una pregunta por
  * pantalla, es un validador de un archivo existente (potencialmente cientos
  * de filas).
  */
 
-const LAST_GENERATED_KEY = 'uploader_last_generated_at';
+const LAST_VALIDATED_KEY = 'uploader_last_validated_at';
 const STALE_MAX_AGE_MS = 60 * 60 * 1000;
 
 class UploaderApp {
@@ -37,13 +36,13 @@ class UploaderApp {
     right.innerHTML = `<span class="navbar-title">Catálogo de Estatus</span>`;
   }
 
-  lastGeneratedAt() {
-    const raw = localStorage.getItem(LAST_GENERATED_KEY);
+  lastValidatedAt() {
+    const raw = localStorage.getItem(LAST_VALIDATED_KEY);
     return raw ? Number(raw) : null;
   }
 
   isStale() {
-    const at = this.lastGeneratedAt();
+    const at = this.lastValidatedAt();
     return at === null || Date.now() - at > STALE_MAX_AGE_MS;
   }
 
@@ -62,12 +61,12 @@ class UploaderApp {
     content.className = 'content';
 
     if (this.isStale()) {
-      const at = this.lastGeneratedAt();
+      const at = this.lastValidatedAt();
       const banner = document.createElement('div');
       banner.className = 'stale-banner';
       const message = at === null
-        ? 'Todavía no has generado ningún catálogo en este dispositivo.'
-        : `El último catálogo que generaste fue ${this.formatAge(Date.now() - at)}. La información debe ser siempre la más reciente — verifica el estatus de los shipments antes de generar uno nuevo.`;
+        ? 'Todavía no has validado ningún catálogo en este dispositivo.'
+        : `El último catálogo que validaste fue ${this.formatAge(Date.now() - at)}. La información debe ser siempre la más reciente — verifica el estatus de los shipments antes de subir uno nuevo.`;
       banner.innerHTML = `
         <div class="stale-banner-icon">${Icons.svg('alertCircle', { size: 26 })}</div>
         <div class="stale-banner-text">${message}</div>
@@ -78,7 +77,7 @@ class UploaderApp {
     const intro = document.createElement('div');
     intro.innerHTML = `
       <h1 class="step-question" style="margin-bottom: var(--spacing-xs);">Catálogo de estatus</h1>
-      <p style="color: var(--color-text-muted); font-size: var(--font-body);">Sube el CSV físico con columnas ID, ESTATUS, OPTIMIZADA. Se valida en tu navegador y queda listo para cargarlo en la app de auditoría, donde se queda viviendo hasta que subas uno nuevo.</p>
+      <p style="color: var(--color-text-muted); font-size: var(--font-body);">Sube el CSV físico con columnas ID, ESTATUS, OPTIMIZADA para validarlo. El mismo archivo (sin cambios) es el que subes después en la app de auditoría.</p>
     `;
     content.appendChild(intro);
 
@@ -138,9 +137,13 @@ class UploaderApp {
       return card;
     }
 
-    const summary = document.createElement('p');
-    summary.innerHTML = `<strong>${this.parsedPreview.records.length} shipments</strong> encontrados en el archivo.`;
-    card.appendChild(summary);
+    const successMsg = document.createElement('p');
+    successMsg.style.display = 'flex';
+    successMsg.style.alignItems = 'center';
+    successMsg.style.gap = 'var(--spacing-sm)';
+    successMsg.style.color = 'var(--color-success, #34c759)';
+    successMsg.innerHTML = `${Icons.svg('checkCircle', { size: 18 })}<span><strong>${this.parsedPreview.records.length} shipments</strong> — archivo válido. Súbelo tal cual en la app de auditoría.</span>`;
+    card.appendChild(successMsg);
 
     const tableWrap = document.createElement('div');
     tableWrap.className = 'records-table-wrap';
@@ -154,26 +157,15 @@ class UploaderApp {
       card.appendChild(note);
     }
 
-    const actions = document.createElement('div');
-    actions.className = 'flex-row';
-    actions.style.marginTop = 'var(--spacing-md)';
-
     const changeBtn = document.createElement('button');
     changeBtn.className = 'btn btn-secondary btn-block';
+    changeBtn.style.marginTop = 'var(--spacing-md)';
     changeBtn.innerHTML = `<span>Elegir otro archivo</span>`;
     changeBtn.addEventListener('click', () => {
       this.rawCsvText = null;
       this.render();
     });
-
-    const downloadBtn = document.createElement('button');
-    downloadBtn.className = 'btn btn-primary btn-block';
-    downloadBtn.innerHTML = `${Icons.svg('checkCircle', { size: 18 })}<span>Descargar catálogo validado</span>`;
-    downloadBtn.addEventListener('click', () => this.downloadValidated());
-
-    actions.appendChild(changeBtn);
-    actions.appendChild(downloadBtn);
-    card.appendChild(actions);
+    card.appendChild(changeBtn);
 
     return card;
   }
@@ -234,20 +226,7 @@ class UploaderApp {
     this.rawCsvText = text;
     this.validationError = null;
     this.parsedPreview = { headers, records };
-    this.render();
-  }
-
-  downloadValidated() {
-    const blob = new Blob([this.rawCsvText], { type: 'text/csv;charset=utf-8' });
-    const url = URL.createObjectURL(blob);
-    const a = document.createElement('a');
-    a.href = url;
-    a.download = `estatus_shipments_${new Date().toISOString().split('T')[0]}.csv`;
-    a.click();
-    URL.revokeObjectURL(url);
-
-    localStorage.setItem(LAST_GENERATED_KEY, String(Date.now()));
-    this.showAlert('Catálogo validado y descargado. Cárgalo en la app de auditoría.', 'success');
+    localStorage.setItem(LAST_VALIDATED_KEY, String(Date.now()));
     this.render();
   }
 
@@ -267,26 +246,6 @@ class UploaderApp {
     link.innerHTML = `${Icons.svg('arrowLeft', { size: 16 })}<span>Ir a la app de Auditoría</span>`;
     wrap.appendChild(link);
     return wrap;
-  }
-
-  showAlert(message, type = 'info') {
-    const iconByType = { success: 'checkCircle', error: 'alertCircle', info: 'infoCircle' };
-    const alertEl = document.createElement('div');
-    alertEl.className = `alert alert-${type}`;
-    alertEl.style.position = 'fixed';
-    alertEl.style.bottom = 'calc(var(--spacing-lg) + env(safe-area-inset-bottom))';
-    alertEl.style.left = 'var(--spacing-md)';
-    alertEl.style.right = 'var(--spacing-md)';
-    alertEl.style.maxWidth = '380px';
-    alertEl.style.marginLeft = 'auto';
-    alertEl.style.marginRight = 'auto';
-    alertEl.style.zIndex = '9999';
-    alertEl.innerHTML = `
-      <span class="alert-icon">${Icons.svg(iconByType[type] || 'infoCircle', { size: 16 })}</span>
-      <span>${message}</span>
-    `;
-    document.body.appendChild(alertEl);
-    setTimeout(() => alertEl.remove(), 3000);
   }
 }
 
