@@ -995,6 +995,32 @@ select.step-input {
   color: #0a84ff;
 }
 
+/* Aviso persistente (no se auto-oculta) de catálogo de estatus vencido o
+   nunca cargado — a diferencia de .alert (toast de 3s), este se queda fijo
+   arriba del menú hasta que el operador actualice el catálogo. */
+.stale-banner {
+  display: flex;
+  align-items: flex-start;
+  gap: var(--spacing-sm);
+  background: rgba(255, 69, 58, 0.12);
+  border: 1px solid rgba(255, 69, 58, 0.4);
+  border-radius: var(--radius-card);
+  padding: var(--spacing-md);
+  margin-bottom: var(--spacing-lg);
+}
+
+.stale-banner-icon {
+  flex-shrink: 0;
+  color: var(--color-error);
+}
+
+.stale-banner-text {
+  font-size: 0.95rem;
+  font-weight: 600;
+  color: var(--color-text-primary);
+  line-height: 1.4;
+}
+
 /* ==========================================================================
    Utilidades
    ========================================================================== */

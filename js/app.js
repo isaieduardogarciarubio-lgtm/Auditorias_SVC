@@ -3,6 +3,11 @@
  * Implementa la Guía de Diseño UX/UI: Minimalismo Oscuro y Flujos Asistidos v2.0
  */
 
+// El catálogo de estatus se considera obsoleto (aviso en pantalla) si pasó
+// más de una hora desde la última vez que se cargó/actualizó.
+const STATUS_CATALOG_MAX_AGE_MS = 60 * 60 * 1000;
+const STATUS_CATALOG_STORAGE_KEY = 'audit_status_catalog_v1';
+
 class FormApp {
   constructor() {
     this.currentForm = null;
@@ -10,6 +15,14 @@ class FormApp {
     this.lastDestino = null; // destino de la última captura (se mantiene fijo entre capturas)
     this.recordsByForm = {}; // registros acumulados en la sesión, por formId (persisten hasta descargar/limpiar)
     this.catalogCache = {}; // catálogos ya descargados, por catalogUrl
+
+    // Catálogo de estatus (ID, ESTATUS, OPTIMIZADA) cargado a mano por el
+    // operador desde un archivo cifrado. Se cachea en localStorage (ya
+    // desencriptado) para no pedirlo de nuevo en cada refresh — el secreto
+    // real sigue siendo el passphrase, no este cache local.
+    this.statusCatalogIndex = null;
+    this.statusCatalogLoadedAt = null;
+    this.loadPersistedStatusCatalog();
 
     // Guard de historial: intercepta el botón/gesto "atrás" del sistema
     // (Android) para navegar dentro de la app en vez de salir del navegador.
@@ -22,6 +35,82 @@ class FormApp {
   }
 
   async init() {
+    this.showMenu();
+  }
+
+  /**
+   * Recupera el catálogo de estatus cacheado en localStorage (si existe) de
+   * una sesión anterior en este mismo dispositivo.
+   */
+  loadPersistedStatusCatalog() {
+    try {
+      const raw = localStorage.getItem(STATUS_CATALOG_STORAGE_KEY);
+      if (!raw) return;
+      const parsed = JSON.parse(raw);
+      if (parsed && parsed.index && parsed.loadedAt) {
+        this.statusCatalogIndex = parsed.index;
+        this.statusCatalogLoadedAt = parsed.loadedAt;
+      }
+    } catch (e) {
+      /* cache corrupto o inexistente: se ignora, el operador puede recargar */
+    }
+  }
+
+  persistStatusCatalog() {
+    localStorage.setItem(
+      STATUS_CATALOG_STORAGE_KEY,
+      JSON.stringify({ index: this.statusCatalogIndex, loadedAt: this.statusCatalogLoadedAt })
+    );
+  }
+
+  statusCatalogAgeMs() {
+    return this.statusCatalogLoadedAt ? Date.now() - this.statusCatalogLoadedAt : null;
+  }
+
+  isStatusCatalogStale() {
+    const age = this.statusCatalogAgeMs();
+    return age === null || age > STATUS_CATALOG_MAX_AGE_MS;
+  }
+
+  /**
+   * Recibe el archivo cifrado del catálogo de estatus (producido por la app
+   * "uploader"), lo desencripta con el mismo passphrase compartido de
+   * CryptoGate, lo parsea como CSV (columnas ID, ESTATUS, OPTIMIZADA) y lo
+   * indexa por ID para consultas O(1) durante el escaneo.
+   */
+  async handleStatusCatalogFile(file) {
+    try {
+      const rawText = await file.text();
+      const passphrase = await CryptoGate.ensurePassphrase();
+      this.showAlert('Desencriptando catálogo...', 'info');
+      const csvText = await CryptoEngine.decryptText(rawText, passphrase);
+      const { headers, records } = CSVEngine.parseCSV(csvText);
+
+      const idCol = headers.find((h) => h.trim().toLowerCase() === 'id');
+      const estatusCol = headers.find((h) => h.trim().toLowerCase() === 'estatus');
+      const optimizadaCol = headers.find((h) => h.trim().toLowerCase() === 'optimizada');
+      if (!idCol || !estatusCol) {
+        throw new Error('El archivo no tiene las columnas esperadas (ID, ESTATUS, OPTIMIZADA)');
+      }
+
+      const index = {};
+      records.forEach((r) => {
+        const id = (r[idCol] || '').trim();
+        if (!id) return;
+        index[id] = {
+          estatus: (r[estatusCol] || '').trim(),
+          optimizada: optimizadaCol ? (r[optimizadaCol] || '').trim() : '',
+        };
+      });
+
+      this.statusCatalogIndex = index;
+      this.statusCatalogLoadedAt = Date.now();
+      this.persistStatusCatalog();
+      this.showAlert(`Catálogo actualizado: ${Object.keys(index).length} shipments`, 'success');
+    } catch (e) {
+      const msg = e && e.message === 'Operación cancelada' ? 'Operación cancelada' : `No se pudo cargar el catálogo: ${e.message}`;
+      this.showAlert(msg, 'error');
+    }
     this.showMenu();
   }
 
@@ -99,12 +188,16 @@ class FormApp {
 
     const content = document.createElement('div');
     content.className = 'content';
-    content.innerHTML = `
-      <div>
-        <h1 class="step-question" style="margin-bottom: var(--spacing-xs);">¿Qué auditoría deseas capturar?</h1>
-        <p style="color: var(--color-text-muted); font-size: var(--font-body);">Selecciona un tipo de registro para comenzar</p>
-      </div>
+
+    const staleBanner = this.renderStaleCatalogBanner();
+    if (staleBanner) content.appendChild(staleBanner);
+
+    const intro = document.createElement('div');
+    intro.innerHTML = `
+      <h1 class="step-question" style="margin-bottom: var(--spacing-xs);">¿Qué auditoría deseas capturar?</h1>
+      <p style="color: var(--color-text-muted); font-size: var(--font-body);">Selecciona un tipo de registro para comenzar</p>
     `;
+    content.appendChild(intro);
 
     const grid = document.createElement('div');
     grid.className = 'forms-grid';
@@ -127,8 +220,89 @@ class FormApp {
 
     content.appendChild(grid);
     content.appendChild(this.renderSavedLogsSection());
+    content.appendChild(this.renderStatusCatalogSection());
     content.appendChild(this.renderPassphraseSection());
     app.appendChild(content);
+  }
+
+  /**
+   * Aviso grande y persistente (no es un toast de 3s) cuando el catálogo de
+   * estatus lleva más de 1 hora sin actualizarse, o nunca se cargó. Se
+   * muestra arriba de todo el menú para que sea imposible de ignorar antes
+   * de auditar con datos desactualizados.
+   */
+  renderStaleCatalogBanner() {
+    if (!this.isStatusCatalogStale()) return null;
+
+    const banner = document.createElement('div');
+    banner.className = 'stale-banner';
+
+    const ageMs = this.statusCatalogAgeMs();
+    const message = ageMs === null
+      ? 'Todavía no cargas el catálogo de estatus. Cárgalo antes de auditar Validación de Contenedor.'
+      : `El catálogo de estatus lleva más de 1 hora sin actualizarse (última carga: ${this.formatCatalogAge(ageMs)}). Verifica que sea la versión más reciente antes de auditar.`;
+
+    banner.innerHTML = `
+      <div class="stale-banner-icon">${Icons.svg('alertCircle', { size: 26 })}</div>
+      <div class="stale-banner-text">${message}</div>
+    `;
+    return banner;
+  }
+
+  formatCatalogAge(ms) {
+    const minutes = Math.floor(ms / 60000);
+    if (minutes < 60) return `hace ${minutes} min`;
+    const hours = Math.floor(minutes / 60);
+    return `hace ${hours} h ${minutes % 60} min`;
+  }
+
+  /**
+   * Sección "Catálogo de estatus": estado actual (cargado/cuándo) + botón
+   * para cargar o actualizar el archivo cifrado con columnas ID, ESTATUS,
+   * OPTIMIZADA, producido por la app "uploader".
+   */
+  renderStatusCatalogSection() {
+    const section = document.createElement('div');
+    section.className = 'card';
+    section.style.marginTop = 'var(--spacing-lg)';
+
+    const title = document.createElement('h3');
+    title.style.marginBottom = 'var(--spacing-sm)';
+    title.textContent = 'Catálogo de Estatus';
+    section.appendChild(title);
+
+    const status = document.createElement('p');
+    status.style.color = 'var(--color-text-muted)';
+    status.style.fontSize = '0.9rem';
+    status.style.marginBottom = 'var(--spacing-md)';
+    if (this.statusCatalogIndex) {
+      const count = Object.keys(this.statusCatalogIndex).length;
+      status.textContent = `${count} shipments cargados · actualizado ${this.formatCatalogAge(this.statusCatalogAgeMs())}`;
+    } else {
+      status.textContent = 'Sin catálogo cargado.';
+    }
+    section.appendChild(status);
+
+    const fileInput = document.createElement('input');
+    fileInput.type = 'file';
+    fileInput.accept = '.json,.csv,.zip,.txt';
+    fileInput.hidden = true;
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files && fileInput.files[0];
+      fileInput.value = '';
+      if (file) this.handleStatusCatalogFile(file);
+    });
+    section.appendChild(fileInput);
+
+    const loadBtn = document.createElement('button');
+    loadBtn.className = 'btn btn-secondary btn-block';
+    loadBtn.innerHTML = this.statusCatalogIndex
+      ? `${Icons.svg('refresh', { size: 18 })}<span>Actualizar catálogo</span>`
+      : `${Icons.svg('arrowDown', { size: 18 })}<span>Cargar catálogo</span>`;
+    loadBtn.addEventListener('click', () => fileInput.click());
+    section.appendChild(loadBtn);
+
+    return section;
   }
 
   /**
@@ -266,6 +440,11 @@ class FormApp {
       return;
     }
 
+    if (formConfig.requiresStatusCatalog && !this.statusCatalogIndex) {
+      this.showAlert('Carga primero el catálogo de estatus (abajo en el menú)', 'error');
+      return;
+    }
+
     this.destroyCurrentFormEngine();
     this._screen = 'capture';
     this.ensureBackGuard();
@@ -275,7 +454,9 @@ class FormApp {
     app.innerHTML = '';
 
     let catalogIndex = {};
-    if (formConfig.catalogUrl) {
+    if (formConfig.requiresStatusCatalog) {
+      catalogIndex = this.statusCatalogIndex;
+    } else if (formConfig.catalogUrl) {
       app.innerHTML = `<div class="content"><div class="step-support">Cargando catálogo...</div></div>`;
       catalogIndex = await this.loadCatalog(formConfig.catalogUrl);
       if (!catalogIndex) {

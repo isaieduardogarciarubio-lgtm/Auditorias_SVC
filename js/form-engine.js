@@ -3,8 +3,9 @@
  * Basado en la Guía de Diseño UX/UI: Minimalismo Oscuro (Sección 1.1)
  * Soporta campos de texto/select/textarea, 'scanner' (QR/barras),
  * 'destino_picker' y 'doca_picker' (buscador + lista fija; el texto solo
- * filtra, solo se avanza eligiendo una opción), usados por el log
- * Auditoría - Destino / Doca.
+ * filtra, solo se avanza eligiendo una opción), y 'estatus_lookup' (compara
+ * el valor de otro campo — típicamente un shipment escaneado — contra
+ * catalogIndex y deriva estatus/optimizada/resultado sin pedir input).
  */
 
 class FormEngine {
@@ -122,6 +123,10 @@ class FormEngine {
     }
     if (field.type === 'doca_picker') {
       this.renderDocaStep(field);
+      return;
+    }
+    if (field.type === 'estatus_lookup') {
+      this.renderEstatusLookupStep(field);
       return;
     }
     if (field.type === 'choice') {
@@ -667,6 +672,87 @@ class FormEngine {
         this.advance();
       },
     });
+  }
+
+  /* ======================================================================
+     Campo estatus_lookup: compara el valor de sourceField (ej. shipment)
+     contra catalogIndex y deriva estatus/optimizada/resultado. No pide
+     input — solo muestra el resultado y requiere un toque para continuar.
+     Si el identificador no está en el catálogo, bloquea el registro y
+     obliga a reintentar el escaneo (no hay "resultado" que guardar).
+     ====================================================================== */
+
+  renderEstatusLookupStep(field) {
+    const sourceValue = this.values[field.sourceField];
+    const entry = (this.catalogIndex || {})[sourceValue];
+
+    this.container.innerHTML = '';
+
+    const screen = document.createElement('div');
+    screen.className = 'step-screen scanner-screen';
+
+    screen.appendChild(this.buildProgress());
+
+    const h1 = document.createElement('h1');
+    h1.className = 'step-question';
+    h1.textContent = field.label;
+    screen.appendChild(h1);
+
+    const body = document.createElement('div');
+    body.className = 'scanner-body';
+    screen.appendChild(body);
+
+    const support = document.createElement('div');
+    support.className = 'step-support';
+    screen.appendChild(support);
+
+    this.container.appendChild(screen);
+    this.errorTargetEl = body;
+    this.supportEl = support;
+
+    if (!entry) {
+      body.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">${Icons.svg('alertCircle', { size: 28 })}</div>
+          <p>Shipment no encontrado en el catálogo de estatus.</p>
+        </div>
+      `;
+      const retryBtn = this.makeButton('Reintentar Shipment', {
+        icon: 'refresh',
+        onClick: () => {
+          delete this.values[field.sourceField];
+          delete this.values.estatus;
+          delete this.values.optimizada;
+          delete this.values.resultado;
+          this.back();
+        },
+      });
+      this.setActions([retryBtn]);
+      return;
+    }
+
+    const isInContainer = String(entry.estatus || '').trim().toLowerCase() === 'in_container';
+    const resultado = isInContainer ? 'En contenedor' : 'No en contenedor';
+    this.values.estatus = entry.estatus;
+    this.values.optimizada = entry.optimizada;
+    this.values.resultado = resultado;
+
+    body.innerHTML = `
+      <div class="scanner-result">
+        <div class="scanner-result-badge">${Icons.svg(isInContainer ? 'checkCircle' : 'alertCircle', { size: 22 })}</div>
+        <div class="scanner-result-label">${resultado}</div>
+        <div class="scanner-result-value">Estatus: ${entry.estatus}</div>
+        <div class="scanner-result-format">Optimizada: ${entry.optimizada || '—'}</div>
+      </div>
+    `;
+
+    const nextBtn = this.makeButton(this.isLastStep ? 'Agregar Registro' : 'Continuar', {
+      primary: true,
+      icon: this.isLastStep ? 'check' : 'arrowRight',
+      iconAfter: true,
+      onClick: () => this.advance(),
+    });
+    this.setActions([nextBtn]);
   }
 
   /* ======================================================================
