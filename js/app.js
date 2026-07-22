@@ -35,7 +35,27 @@ class FormApp {
   }
 
   async init() {
+    await this.restorePersistedRecords();
     this.showMenu();
+  }
+
+  /**
+   * Recupera de IndexedDB cualquier registro capturado en una sesión
+   * anterior en este dispositivo que el operador no haya descargado ni
+   * borrado. Se ejecuta antes de mostrar el menú para que "Registros
+   * Guardados" ya refleje el estado real desde el primer render.
+   */
+  async restorePersistedRecords() {
+    try {
+      const grouped = await RecordStore.loadAll();
+      const total = Object.values(grouped).reduce((sum, arr) => sum + arr.length, 0);
+      if (total > 0) {
+        this.recordsByForm = grouped;
+        this._pendingRestoreAlert = `Se recuperaron ${total} registro${total === 1 ? '' : 's'} sin descargar de tu última sesión`;
+      }
+    } catch (e) {
+      console.warn('No se pudieron recuperar registros persistidos:', e);
+    }
   }
 
   /**
@@ -185,6 +205,12 @@ class FormApp {
 
     const app = document.getElementById('app');
     app.innerHTML = '';
+
+    if (this._pendingRestoreAlert) {
+      const msg = this._pendingRestoreAlert;
+      this._pendingRestoreAlert = null;
+      setTimeout(() => this.showAlert(msg, 'info'), 50);
+    }
 
     const content = document.createElement('div');
     content.className = 'content';
@@ -589,10 +615,19 @@ class FormApp {
       this.lastDestino = data.destino;
     }
 
+    // uid propio para poder borrar este registro puntual de IndexedDB más
+    // adelante; no es una columna del CSV, exportRecords solo lee csvColumns.
+    data._uid = RecordStore.genUid(this.currentForm.id);
+
     const records = this.getRecords(this.currentForm.id);
     records.push(data);
     this.showAlert(`Registro agregado (total: ${records.length})`, 'success');
     this.showRecordsPage();
+
+    RecordStore.put(data._uid, this.currentForm.id, data).catch((e) => {
+      console.error('No se pudo guardar el registro localmente:', e);
+      this.showAlert('Aviso: no se pudo respaldar este registro en el dispositivo. Descarga pronto.', 'error');
+    });
   }
 
   /**
@@ -664,6 +699,9 @@ class FormApp {
         if (confirm('¿Estás seguro? Se perderán todos los registros.')) {
           this.recordsByForm[this.currentForm.id] = [];
           this.showRecordsPage();
+          RecordStore.clearForm(this.currentForm.id).catch((e) =>
+            console.error('No se pudo limpiar el respaldo local:', e)
+          );
         }
       });
 
@@ -696,9 +734,12 @@ class FormApp {
    */
   deleteRecord(index) {
     if (confirm('¿Eliminar este registro?')) {
-      this.getRecords(this.currentForm.id).splice(index, 1);
+      const [removed] = this.getRecords(this.currentForm.id).splice(index, 1);
       this.showAlert('Registro eliminado', 'success');
       this.showRecordsPage();
+      if (removed && removed._uid) {
+        RecordStore.delete(removed._uid).catch((e) => console.error('No se pudo borrar el respaldo local:', e));
+      }
     }
   }
 
