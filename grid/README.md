@@ -193,6 +193,6 @@ Uso interno MercadoLibre.
 
 ## 🔗 Links
 
-- **Generador de CSV (GitHub Pages)**: https://isaieduardogarciarubio-lgtm.github.io/formulario_lp_xmt1/
+- **Generador de CSV (GitHub Pages)**: https://isaieduardogarciarubio-lgtm.github.io/Auditorias_SVC/
 - **Biblia Grid V11.4**: Sección 23 (State Buckets), Sección 19 (Concurrency), Sección 24 (Folders API)
 - **dataviz skill**: Asignación de colores por job (categorical, sequential, status)

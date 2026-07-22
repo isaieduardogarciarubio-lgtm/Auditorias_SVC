@@ -92,7 +92,7 @@ class FormApp {
     this.lastDestino = null;
     this._screen = 'menu';
     this._inSubScreen = false;
-    this.setHeader({ title: 'Auditoría XMT1' });
+    this.setHeader({ title: 'Auditorías SVC' });
 
     const app = document.getElementById('app');
     app.innerHTML = '';

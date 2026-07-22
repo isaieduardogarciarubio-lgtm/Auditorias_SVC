@@ -1,6 +1,26 @@
-# Generador de CSV - MercadoLibre
+# Auditorías SVC - MercadoLibre
 
 Una aplicación web minimalista para recopilar datos en formularios dinámicos y exportarlos a CSV compatible con Grid.
+
+## 📌 Estado actual (base clonada, en planeación)
+
+Este repo se clonó desde el branch `claude/grid-webapp-planning-aat9tw` de `Formulario_LP_XMT1` como
+punto de partida. Se removieron los 5 logs originales de Auditorías XMT1
+(`destino_doca`, `fury`, `contenerizado`, `linehaul`, `inbound_fm`) de `js/forms-config.js` — hoy
+`FORMS_CONFIG` está vacío. Pendiente de construir (no incluido en este clon):
+
+- El nuevo log: escaneo de Shipment ID + comparación contra un catálogo de estatus (columnas
+  `ID, ESTATUS, OPTIMIZADA`), con guardado automático "En contenedor" / "No en contenedor" y paso
+  de evidencia fotográfica cuando el estatus no es `in_container`.
+- La app "uploader" para subir el CSV físico de estatus (nueva app HTML en este mismo repo).
+- El botón de navegación entre apps (captura ↔ uploader ↔ dashboard).
+- El aviso de "CSV sin cambios hace más de 1 hora" en ambas apps.
+- Adaptar `grid/consolidado_auditoria.html` al nuevo log — hoy conserva sin cambios la lógica de
+  los 5 logs viejos (si/else por `currentLog`), porque limpiarla a fondo es un refactor real, no
+  una limpieza mecánica, y corresponde a la fase de construcción.
+- Rediseñar la persistencia de registros de la app de captura para que no se pierdan por
+  refresh/cierre de pestaña antes de descargar (hoy sigue siendo solo en memoria, igual que en
+  el branch de origen).
 
 ## 🚀 Características
 
@@ -14,7 +34,7 @@ Una aplicación web minimalista para recopilar datos en formularios dinámicos y
 ## 📁 Estructura
 
 ```
-formulario_lp_xmt1/
+Auditorias_SVC/
 ├── index.html                 # Punto de entrada único
 ├── css/
 │   └── nocturne.css          # Sistema visual Nocturne (dark + amarillo Meli)
@@ -136,7 +156,7 @@ Output: "Juan ""El Maestro"" García, con coma"
 
 1. Asegúrate de que el repo esté public o el Pages esté habilitado en Settings
 2. Ve a **Settings → Pages → Source**: selecciona rama `claude/bible-form-csv-app-sesqk4` (o `main` después de merge)
-3. La app estará en `https://isaieduardogarciarubio-lgtm.github.io/formulario_lp_xmt1/`
+3. La app estará en `https://isaieduardogarciarubio-lgtm.github.io/Auditorias_SVC/`
 
 ## 🔗 Integración con Grid (Futuro)
 
