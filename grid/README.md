@@ -1,27 +1,24 @@
 # 📊 Consolidado de Auditoría — Grid
 
-Dashboard de consolidación en vivo para múltiples tipos de logs (Destino/Doca, FURY, Contenerizado, Linehaul) desde la herramienta de GitHub Pages.
+Dashboard de consolidación en vivo para el log "Validación de Contenedor" (Auditorias SVC), alimentado desde la herramienta de GitHub Pages.
 
 ## 🎯 Qué es
 
 Un **dashboard interactivo en Grid** que:
-- Ingiere **CSVs o ZIPs** cargados manualmente (drag & drop)
-- **Auto-detecta** tipo de log por headers CSV
+- Ingiere **CSVs o ZIPs** cargados manualmente (drag & drop), incluyendo el catálogo cifrado descargado desde la app de captura
+- **Auto-detecta** el CSV del log por sus headers
 - Descomprime ZIPs con fotos integradas (JSZip)
-- Deduplica automático por timestamp + identificadores de log
-- Consolida en **4 State Buckets independientes** (uno por tipo de log)
-- Muestra **KPIs + gráficos Plotly + tabla filtrable** por log en tiempo real
+- Deduplica automático por timestamp + shipment
+- Consolida en un **State Bucket** (`contenedor_master`)
+- Muestra **KPIs + gráfico Plotly + tabla filtrable** en tiempo real
 - Permite **refresh manual** con reintento automático en conflictos
 - **Descarga consolidada** en JSON
 
-## 📋 Tipos de Log Soportados
+## 📋 Log Soportado
 
 | Log | Campos | KPIs | Gráficos |
 |-----|--------|------|----------|
-| **Destino/Doca** | HU, Destino, Doca, Resultado (auto) | Total, Sin incidencia, Erroneo | Resultado (dona), Top Destinos (barras), Top Docas (barras) |
-| **FURY** | Shipment, Foto, Situación, Valor (opt) | Total, por Situación | Situación (barras), Top Shipments (barras) |
-| **Contenerizado** | Shipment, Situación, Foto (cond: si "Dañado") | Total, por Situación | Situación (barras), Top Shipments (barras) |
-| **Linehaul** | HU, Área, Armado Sitio, Origen (cond), Canalización, Foto (opt), Comentarios (opt) | Total, por Área | Área (dona), Canalización (barras) |
+| **Validación de Contenedor** | Shipment ID, Estatus (catálogo), Optimizada, Resultado (auto: En contenedor / No en contenedor), Evidencia (foto, si no está en contenedor) | Total, En contenedor, No en contenedor | Resultado (dona verde/rojo), Estatus del catálogo (barras) |
 
 ## 🚀 Despliegue
 
@@ -53,27 +50,27 @@ Abre con el data_doc_id en la URL:
 https://grid.melioffice.com/d/{HTML_DOC_ID}/?data_doc_id={DATA_DOC_ID}
 ```
 
-O hardcodeado en el HTML (editar línea ~490):
+O hardcodeado en el HTML (buscar `this.docId = params.get('data_doc_id') ||`):
 ```javascript
 this.docId = params.get('data_doc_id') || '{TU_DATA_DOC_ID}';
 ```
 
 ## 📋 Flujo de Uso
 
-1. **Operador en GitHub Pages**: Llena forma (escanea, captura foto) → exporta CSV o ZIP
+1. **Operador en GitHub Pages**: Escanea shipment, se compara contra el catálogo de estatus → exporta CSV o ZIP (si hay evidencia fotográfica)
 2. **Operador abre dashboard** con `?data_doc_id=...`
-3. **Drag & drop del archivo CSV o ZIP** → auto-detecta tipo, descomprime, valida
-4. **Dashboard actualiza** → tabs de cada log, KPIs, gráficos, tabla
+3. **Drag & drop del archivo CSV o ZIP** → auto-detecta, descomprime, valida
+4. **Dashboard actualiza** → KPIs, gráficos, tabla
 5. **Busca/filtra** en la tabla
-6. **Haz click en miniatura** de foto para ver en modal
-7. **Descarga consolidado** como JSON con todos los logs
+6. **Haz click en miniatura** de foto de evidencia para ver en modal
+7. **Descarga consolidado** como JSON
 
 ## 🎨 Paleta de Colores (dataviz)
 
 | Elemento | Color | Hex | Job |
 |---|---|---|---|
-| Success (Verde) | — | `#008300` | Sin incidencia, Normal |
-| Critical (Rojo) | — | `#d03b3b` | Erroneo, Dañado, Perdido |
+| Success (Verde) | — | `#008300` | En contenedor |
+| Critical (Rojo) | — | `#d03b3b` | No en contenedor |
 | Series (Azul) | — | `#3987e5` | Barras, líneas |
 | Accent (Amarillo) | — | `#ffd100` | Botones, tabs activos |
 | Surface Dark | — | `#1a1a19` | Fondo charts |
@@ -82,87 +79,68 @@ this.docId = params.get('data_doc_id') || '{TU_DATA_DOC_ID}';
 
 ## 🔒 Seguridad & Restricciones (Biblia)
 
-✅ **Sin localStorage**: 4 State Buckets independientes  
-✅ **Identidad**: `GET /api/v1/me` para obtener email/avatar  
-✅ **Optimistic concurrency**: `if_updated_at` en PUT → 409 = reintento automático  
-✅ **Modales propios**: No usa `alert/confirm/prompt`  
-✅ **Librerías locales**: Plotly + JSZip desde `/d/_libs/`  
-✅ **Sin CDNs externos**: CSS + JS autocontenidos en HTML  
+✅ **Sin localStorage**: State Bucket propio del documento de datos
+✅ **Identidad**: `GET /api/v1/me` para obtener email/avatar (y verificar admins)
+✅ **Optimistic concurrency**: `if_updated_at` en PUT → 409 = reintento automático
+✅ **Modales propios**: No usa `alert/confirm/prompt`
+✅ **Librerías locales**: Plotly + JSZip desde `/d/_libs/`
+✅ **Sin CDNs externos**: CSS + JS autocontenidos en HTML
 
 ## 💾 Almacenamiento
 
-**4 State Buckets** en el documento de datos:
+**1 State Bucket** en el documento de datos:
 
 ```json
 {
-  "destino_doca_master": {
+  "contenedor_master": {
     "version": 1,
     "records": [
       {
-        "ts": "2026-07-14T10:30:45Z",
-        "hu": "HU123",
-        "destino": "MXAMT1",
-        "doca": "134",
-        "resultado": "Sin incidencia"
+        "ts": "2026-07-22T18:00:00Z",
+        "shipment": "47326091753",
+        "estatus": "in_container",
+        "optimizada": "Si",
+        "resultado": "En contenedor",
+        "evidencia": ""
       }
     ]
-  },
-  "fury_master": { "version": 1, "records": [...] },
-  "contenerizado_master": { "version": 1, "records": [...] },
-  "linehaul_master": { "version": 1, "records": [...] }
+  }
 }
 ```
 
-**Cada bucket:**
-- Límite ~1 MB → ~16k registros @ 60 bytes c/u
-- Deduplicación por: ts + hu + shipment + destino + doca
+**El bucket:**
+- Límite ~1 MB → ~16k registros @ 60 bytes c/u (las fotos viven como documentos aparte, ver abajo)
+- Deduplicación por: ts + shipment
 - Reintento automático en conflictos (409)
 
 ## 📥 Formatos de Entrada
 
 ### CSV
 ```
-Fecha/Hora,HU,Destino,Doca,Resultado
-2026-07-14 10:30:45,HU123,MXAMT1,134,Sin incidencia
+Fecha/Hora,Shipment ID,Estatus,Optimizada,Resultado,Evidencia
+2026-07-22 18:00:00,47326091753,in_container,Si,En contenedor,
 ```
 
-Auto-detecta tipo por headers (case-insensitive):
-- `resultado` → destino_doca
-- `shipment + situacion + foto + valor` → fury
-- `shipment + situacion + foto` (sin valor) → contenerizado
-- `hu + area + canalizacion` → linehaul
+Auto-detecta el log por headers (case-insensitive): `shipment + estatus + resultado`.
+
+### CSV cifrado
+
+El CSV que exporta la app de captura viaja cifrado (mismo esquema AES-256-GCM que el resto de Auditorias SVC). El dashboard detecta que está cifrado leyendo el contenido (JSON con `{v, kind, salt, iv, data}`), no la extensión, y lo desencripta con la contraseña compartida guardada en el State Bucket `crypto_config` (ver botón de administrador en el navbar).
 
 ### ZIP
 ```
-destino_doca_2026-07-14/
+contenedor_2026-07-22/
 ├── data.csv
 └── fotos/
-    ├── 001_HU123.jpg
-    └── 002_HU124.jpg
-
-fury_2026-07-14/
-├── data.csv
-└── fotos/
-    ├── 001_SHIP123.jpg
-    └── 002_SHIP124.jpg
+    ├── 001_47326091753.jpg
+    └── 002_99999999999.jpg
 ```
 
-Los ZIPs contienen CSVs + subcarpeta `fotos/` con imágenes JPEG. El app:
+El ZIP contiene el CSV + subcarpeta `fotos/` con las imágenes de evidencia. El app:
 1. Descomprime ZIP
-2. Lee CSV de cada carpeta → detecta log type
-3. Extrae fotos → las convierte a data URLs
-4. Inserta datos + fotos en State Bucket
-
-## 📊 Gráficos Por Log
-
-| Log | Gráfico 1 | Gráfico 2 | Gráfico 3 |
-|-----|-----------|-----------|-----------|
-| **Destino/Doca** | Resultado (dona: verde/rojo) | Top 8 Destinos (barras) | Top 8 Docas (barras) |
-| **FURY** | Situación (barras) | Top 10 Shipments (barras) | — |
-| **Contenerizado** | Situación (barras) | Top 10 Shipments (barras) | — |
-| **Linehaul** | Área (dona) | Canalización (barras) | — |
-
-Todos con tema Nocturne: fondo #1a1a19, texto blanco, sin modo bar.
+2. Lee el CSV → detecta el log
+3. Extrae fotos → las sube como documentos de Grid
+4. Inserta datos + referencias de foto en el State Bucket
 
 ## 🐛 Troubleshooting
 
@@ -171,20 +149,20 @@ Todos con tema Nocturne: fondo #1a1a19, texto blanco, sin modo bar.
 | "No autenticado" | No en VPN Grid | Conecta a VPN + inicia sesión en Grid UI |
 | Tabla vacía | No se cargó el bucket | Verifica `data_doc_id` en URL |
 | "JSZip undefined" | `/d/_libs/jszip.min.js` falta | Contacta admin Grid |
-| CSV rechazado | Headers no coinciden | Verifica headers exactos (mayús/minús) |
-| Fotos no se ven | Nombres de archivo no coinciden | Chequea CSV referencia foto: `001_SHIPID.jpg` |
+| CSV rechazado | Headers no coinciden | Verifica que traiga Shipment ID, Estatus, Resultado |
+| Fotos no se ven | Nombres de archivo no coinciden | Chequea que el CSV referencie `fotos/001_{shipment}.jpg` |
 | 409 Conflict | Dos usuarios escriben simultáneamente | App reintenta automático en 500-1000ms |
-| Gráficos en blanco | Plotly no cargó | Verifica `/d/_libs/plotly.min.js` |
+| "No se pudo desencriptar" | Contraseña incorrecta o rotada | Verifica la contraseña vigente en el panel de admin |
 
 ## 🔄 Auto-Polling
 
-- **Manual:** Botón "Actualizar" en navbar → recarga desde State Buckets
+- **Manual:** Botón "Actualizar" en navbar → recarga desde el State Bucket
 - Reintento automático en conflictos (409): 500-1000ms + backoff exponencial
 
 ## 📤 Descarga
 
 - **JSON consolidado**: Botón "Descargar" en navbar
-- Contiene: `{ logs: { destino_doca: [...], fury: [...], contenerizado: [...], linehaul: [...] } }`
+- Contiene: `{ logs: { contenedor: [...] } }`
 - Timestamp: `consolidado_AAAA-MM-DD.json`
 
 ## 📝 Licencia
@@ -193,6 +171,6 @@ Uso interno MercadoLibre.
 
 ## 🔗 Links
 
-- **Generador de CSV (GitHub Pages)**: https://isaieduardogarciarubio-lgtm.github.io/Auditorias_SVC/
+- **App de captura + uploader (GitHub Pages)**: https://isaieduardogarciarubio-lgtm.github.io/Auditorias_SVC/
 - **Biblia Grid V11.4**: Sección 23 (State Buckets), Sección 19 (Concurrency), Sección 24 (Folders API)
 - **dataviz skill**: Asignación de colores por job (categorical, sequential, status)

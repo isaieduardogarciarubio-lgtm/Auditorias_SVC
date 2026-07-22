@@ -1018,13 +1018,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       this.docId = params.get('data_doc_id') || '01KXHHVWD581MQ567XEBW8HM5B';
       this.gridClient = new GridClient(this.docId);
       this.logs = {
-        destino_doca: [],
-        fury: [],
-        contenerizado: [],
-        linehaul: [],
-        inbound_fm: [],
+        contenedor: [],
       };
-      this.currentLog = 'destino_doca';
+      this.currentLog = 'contenedor';
       this.activeMainTab = 'upload';
       this.init();
     }
@@ -1468,41 +1464,13 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const total = records.length;
       let good = 0, bad = 0;
 
-      if (this.currentLog === 'destino_doca') {
-        good = records.filter(r => r.resultado === 'Sin incidencia').length;
-        bad = records.filter(r => r.resultado === 'Erroneo').length;
+      if (this.currentLog === 'contenedor') {
+        good = records.filter(r => r.resultado === 'En contenedor').length;
+        bad = records.filter(r => r.resultado === 'No en contenedor').length;
 
         this.addKpiCard(container, total.toString(), 'Total');
-        this.addKpiCard(container, good.toString(), 'Sin incidencia');
-        this.addKpiCard(container, bad.toString(), 'Erroneo');
-      } else if (this.currentLog === 'fury') {
-        const situations = new Set(records.map(r => r.situacion));
-        this.addKpiCard(container, total.toString(), 'Total');
-        situations.forEach(s => {
-          const count = records.filter(r => r.situacion === s).length;
-          this.addKpiCard(container, count.toString(), s);
-        });
-      } else if (this.currentLog === 'contenerizado') {
-        const situations = new Set(records.map(r => r.situacion));
-        this.addKpiCard(container, total.toString(), 'Total');
-        situations.forEach(s => {
-          const count = records.filter(r => r.situacion === s).length;
-          this.addKpiCard(container, count.toString(), s);
-        });
-      } else if (this.currentLog === 'linehaul') {
-        const areas = new Set(records.map(r => r.area));
-        this.addKpiCard(container, total.toString(), 'Total');
-        areas.forEach(a => {
-          const count = records.filter(r => r.area === a).length;
-          this.addKpiCard(container, count.toString(), a);
-        });
-      } else if (this.currentLog === 'inbound_fm') {
-        const hallazgos = new Set(records.map(r => r.hallazgo));
-        this.addKpiCard(container, total.toString(), 'Total');
-        hallazgos.forEach(h => {
-          const count = records.filter(r => r.hallazgo === h).length;
-          this.addKpiCard(container, count.toString(), h);
-        });
+        this.addKpiCard(container, good.toString(), 'En contenedor');
+        this.addKpiCard(container, bad.toString(), 'No en contenedor');
       }
     }
 
@@ -1558,17 +1526,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         container.innerHTML = '';
 
         let builders = [];
-        if (this.currentLog === 'destino_doca') {
+        if (this.currentLog === 'contenedor') {
           builders = [
             () => this.buildResultadoChart(records),
-            () => this.buildDestinoChart(records),
+            () => this.buildEstatusChart(records),
           ];
-        } else if (this.currentLog === 'fury' || this.currentLog === 'contenerizado') {
-          builders = [() => this.buildSituacionChart(records)];
-        } else if (this.currentLog === 'linehaul') {
-          builders = [() => this.buildAreaChart(records)];
-        } else if (this.currentLog === 'inbound_fm') {
-          builders = [() => this.buildHallazgoChart(records)];
         }
 
         // Fase 1: crear y anexar TODOS los divs primero. Con CSS Grid
@@ -1616,8 +1578,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       return { data, layout };
     }
 
-    buildSituacionChart(records) {
-      const counts = this.countByField(records, 'situacion');
+    buildEstatusChart(records) {
+      const counts = this.countByField(records, 'estatus');
 
       const data = [{
         x: Object.keys(counts),
@@ -1627,79 +1589,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }];
 
       const layout = {
-        title: 'Distribución de Situaciones',
-        xaxis: { title: 'Situación' },
-        yaxis: { title: 'Cantidad' },
-        plot_bgcolor: 'transparent',
-        paper_bgcolor: 'transparent',
-        font: { color: '#F4F6F8', size: 11 },
-        margin: { l: 50, r: 30, t: 40, b: 40 },
-      };
-
-      return { data, layout };
-    }
-
-    buildDestinoChart(records) {
-      const counts = this.countByField(records, 'destino');
-
-      const sorted = Object.entries(counts).sort((a, b) => b[1] - a[1]).slice(0, 8);
-
-      const data = [{
-        x: sorted.map(([k]) => k),
-        y: sorted.map(([, v]) => v),
-        type: 'bar',
-        marker: { color: '#FFD100' },
-      }];
-
-      const layout = {
-        title: 'Top Destinos',
-        xaxis: { title: 'Destino' },
-        yaxis: { title: 'Cantidad' },
-        plot_bgcolor: 'transparent',
-        paper_bgcolor: 'transparent',
-        font: { color: '#F4F6F8', size: 11 },
-        margin: { l: 50, r: 30, t: 40, b: 40 },
-      };
-
-      return { data, layout };
-    }
-
-    buildAreaChart(records) {
-      const counts = this.countByField(records, 'area');
-
-      const data = [{
-        labels: Object.keys(counts),
-        values: Object.values(counts),
-        type: 'pie',
-        marker: { colors: ['#FFD100', '#8A7300', '#4A4A4A'] },
-      }];
-
-      const layout = {
-        title: 'Distribución por Área',
-        plot_bgcolor: 'transparent',
-        paper_bgcolor: 'transparent',
-        font: { color: '#F4F6F8', size: 11 },
-        showlegend: true,
-        legend: { orientation: 'h', x: 0.5, xanchor: 'center', y: -0.15 },
-        margin: { l: 20, r: 20, t: 40, b: 20 },
-      };
-
-      return { data, layout };
-    }
-
-    buildHallazgoChart(records) {
-      const counts = this.countByField(records, 'hallazgo');
-
-      const data = [{
-        x: Object.keys(counts),
-        y: Object.values(counts),
-        type: 'bar',
-        marker: { color: '#FFD100' },
-      }];
-
-      const layout = {
-        title: 'Distribución de Hallazgos',
-        xaxis: { title: 'Hallazgo' },
+        title: 'Distribución por Estatus del Catálogo',
+        xaxis: { title: 'Estatus' },
         yaxis: { title: 'Cantidad' },
         plot_bgcolor: 'transparent',
         paper_bgcolor: 'transparent',
@@ -1743,7 +1634,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           const value = record[col.field] || '';
 
           if (col.field === 'resultado') {
-            td.className = value === 'Sin incidencia' ? 'status-good' : 'status-critical';
+            td.className = value === 'En contenedor' ? 'status-good' : 'status-critical';
             td.textContent = value;
           } else if (isPhotoField(col.field)) {
             // La foto se ve con la acción "Ver fotos"; aquí solo un indicador.
@@ -2134,20 +2025,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
   function detectLogTypeFromHeaders(headers) {
     const normalized = headers.map(normalizeText);
-    // Substring, no coincidencia exacta: encabezados como "Shipment ID" o
-    // "USD Valor" no son iguales a "shipment"/"valor" carácter por
-    // carácter, pero sí los contienen. Coincidencia exacta se rompe apenas
-    // alguien le agrega una palabra al header en el formulario.
+    // Substring, no coincidencia exacta: encabezados como "Shipment ID" no
+    // son iguales a "shipment" carácter por carácter, pero sí lo contienen.
+    // Coincidencia exacta se rompe apenas alguien le agrega una palabra al
+    // header en el formulario.
     const has = (keyword) => normalized.some(h => h.includes(keyword));
 
-    if (has('resultado')) {
-      return 'destino_doca';
-    } else if (has('shipment') && has('situacion') && has('foto')) {
-      return has('valor') ? 'fury' : 'contenerizado';
-    } else if (has('hu') && has('area') && has('canalizacion')) {
-      return 'linehaul';
-    } else if (has('patente') && has('hallazgo')) {
-      return 'inbound_fm';
+    if (has('shipment') && has('estatus') && has('resultado')) {
+      return 'contenedor';
     }
 
     return null;
@@ -2176,63 +2061,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   }
 
   const FORMS_CONFIG = {
-    destino_doca: {
-      title: 'Destino / Doca',
+    contenedor: {
+      title: 'Validación de Contenedor',
       csvColumns: [
         { field: 'auditoria', header: 'Auditoría' },
         { field: 'ts', header: 'Fecha/Hora' },
-        { field: 'hu', header: 'HU' },
-        { field: 'destino', header: 'Destino' },
-        { field: 'doca', header: 'Doca' },
+        { field: 'shipment', header: 'Shipment ID' },
+        { field: 'estatus', header: 'Estatus' },
+        { field: 'optimizada', header: 'Optimizada' },
         { field: 'resultado', header: 'Resultado' },
-      ],
-      fields: [],
-    },
-    fury: {
-      title: 'FURY',
-      csvColumns: [
-        { field: 'auditoria', header: 'Auditoría' },
-        { field: 'ts', header: 'Fecha/Hora' },
-        { field: 'shipment', header: 'Shipment ID' },
-        { field: 'foto', header: 'Foto' },
-        { field: 'situacion', header: 'Situación' },
-        { field: 'valor', header: 'USD Valor' },
-      ],
-      fields: [{ type: 'photo', id: 'foto' }],
-    },
-    contenerizado: {
-      title: 'Contenerizado',
-      csvColumns: [
-        { field: 'auditoria', header: 'Auditoría' },
-        { field: 'ts', header: 'Fecha/Hora' },
-        { field: 'shipment', header: 'Shipment ID' },
-        { field: 'situacion', header: 'Situación' },
-        { field: 'foto', header: 'Foto' },
-      ],
-      fields: [{ type: 'photo', id: 'foto' }],
-    },
-    linehaul: {
-      title: 'Linehaul',
-      csvColumns: [
-        { field: 'auditoria', header: 'Auditoría' },
-        { field: 'ts', header: 'Fecha/Hora' },
-        { field: 'hu', header: 'HU' },
-        { field: 'area', header: 'Área' },
-        { field: 'origen', header: 'Origen' },
-        { field: 'canalizacion', header: 'Canalización' },
-        { field: 'foto', header: 'Foto' },
-        { field: 'comentarios', header: 'Comentarios' },
-      ],
-      fields: [{ type: 'photo', id: 'foto' }],
-    },
-    inbound_fm: {
-      title: 'Inbound FM',
-      csvColumns: [
-        { field: 'auditoria', header: 'Auditoría' },
-        { field: 'ts', header: 'Fecha/Hora' },
-        { field: 'patente', header: 'Patente' },
-        { field: 'diferencia_shipments', header: 'Diferencia de Shipments' },
-        { field: 'hallazgo', header: 'Hallazgo' },
         { field: 'evidencia', header: 'Evidencia' },
       ],
       fields: [{ type: 'photo', id: 'evidencia' }],
