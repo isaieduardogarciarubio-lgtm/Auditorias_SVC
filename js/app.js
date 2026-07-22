@@ -4,9 +4,17 @@
  */
 
 // El catálogo de estatus se considera obsoleto (aviso en pantalla) si pasó
-// más de una hora desde la última vez que se cargó/actualizó.
+// más de una hora desde la última vez que se generó (según el archivo de
+// metadata, no según cuándo lo vio este dispositivo).
 const STATUS_CATALOG_MAX_AGE_MS = 60 * 60 * 1000;
-const STATUS_CATALOG_STORAGE_KEY = 'audit_status_catalog_v1';
+
+// Archivos públicos y estáticos en el mismo sitio de GitHub Pages. La app
+// "uploader" los comitea al repo; cualquiera que abra esta app los lee con
+// un fetch normal, mismo origen, sin autenticación — así el catálogo es el
+// mismo para todos los dispositivos, no algo que vive solo en el navegador
+// de quien lo cargó.
+const STATUS_CATALOG_CSV_URL = 'data/estatus_shipments.csv';
+const STATUS_CATALOG_META_URL = 'data/estatus_shipments_meta.json';
 
 class FormApp {
   constructor() {
@@ -16,13 +24,11 @@ class FormApp {
     this.recordsByForm = {}; // registros acumulados en la sesión, por formId (persisten hasta descargar/limpiar)
     this.catalogCache = {}; // catálogos ya descargados, por catalogUrl
 
-    // Catálogo de estatus (ID, ESTATUS, OPTIMIZADA) cargado a mano por el
-    // operador desde un archivo cifrado. Se cachea en localStorage (ya
-    // desencriptado) para no pedirlo de nuevo en cada refresh — el secreto
-    // real sigue siendo el passphrase, no este cache local.
+    // Catálogo de estatus (ID, ESTATUS, OPTIMIZADA): se trae del repo, no
+    // del navegador — ver loadCentralCatalog().
     this.statusCatalogIndex = null;
     this.statusCatalogLoadedAt = null;
-    this.loadPersistedStatusCatalog();
+    this.statusCatalogError = null;
 
     // Guard de historial: intercepta el botón/gesto "atrás" del sistema
     // (Android) para navegar dentro de la app en vez de salir del navegador.
@@ -36,6 +42,69 @@ class FormApp {
 
   async init() {
     await this.restorePersistedRecords();
+    await this.loadCentralCatalog();
+    this.showMenu();
+  }
+
+  /**
+   * Trae el catálogo de estatus publicado en el repo (mismo para todos los
+   * usuarios). `cache: 'no-store'` evita que el navegador sirva una copia
+   * vieja cacheada del CSV entre visitas — siempre queremos la versión
+   * recién desplegada.
+   */
+  async loadCentralCatalog() {
+    try {
+      const [csvRes, metaRes] = await Promise.all([
+        fetch(STATUS_CATALOG_CSV_URL, { cache: 'no-store' }),
+        fetch(STATUS_CATALOG_META_URL, { cache: 'no-store' }),
+      ]);
+
+      if (!csvRes.ok || !metaRes.ok) {
+        this.statusCatalogIndex = null;
+        this.statusCatalogLoadedAt = null;
+        this.statusCatalogError = null; // 404 = nadie ha subido un catálogo todavía, no es un error
+        return;
+      }
+
+      const csvText = await csvRes.text();
+      const meta = await metaRes.json();
+      const { headers, records } = CSVEngine.parseCSV(csvText);
+
+      const idCol = headers.find((h) => h.trim().toLowerCase() === 'id');
+      const estatusCol = headers.find((h) => h.trim().toLowerCase() === 'estatus');
+      const optimizadaCol = headers.find((h) => h.trim().toLowerCase() === 'optimizada');
+      if (!idCol || !estatusCol) {
+        throw new Error('El catálogo publicado no tiene las columnas esperadas (ID, ESTATUS, OPTIMIZADA)');
+      }
+
+      const index = {};
+      records.forEach((r) => {
+        const id = (r[idCol] || '').trim();
+        if (!id) return;
+        index[id] = {
+          estatus: (r[estatusCol] || '').trim(),
+          optimizada: optimizadaCol ? (r[optimizadaCol] || '').trim() : '',
+        };
+      });
+
+      this.statusCatalogIndex = index;
+      this.statusCatalogLoadedAt = meta.generatedAt ? new Date(meta.generatedAt).getTime() : null;
+      this.statusCatalogError = null;
+    } catch (e) {
+      this.statusCatalogError = e.message;
+    }
+  }
+
+  async refreshCentralCatalog() {
+    this.showAlert('Actualizando catálogo...', 'info');
+    await this.loadCentralCatalog();
+    if (this.statusCatalogError) {
+      this.showAlert(`No se pudo actualizar el catálogo: ${this.statusCatalogError}`, 'error');
+    } else if (this.statusCatalogIndex) {
+      this.showAlert(`Catálogo actualizado: ${Object.keys(this.statusCatalogIndex).length} shipments`, 'success');
+    } else {
+      this.showAlert('Todavía no hay ningún catálogo publicado', 'error');
+    }
     this.showMenu();
   }
 
@@ -58,31 +127,6 @@ class FormApp {
     }
   }
 
-  /**
-   * Recupera el catálogo de estatus cacheado en localStorage (si existe) de
-   * una sesión anterior en este mismo dispositivo.
-   */
-  loadPersistedStatusCatalog() {
-    try {
-      const raw = localStorage.getItem(STATUS_CATALOG_STORAGE_KEY);
-      if (!raw) return;
-      const parsed = JSON.parse(raw);
-      if (parsed && parsed.index && parsed.loadedAt) {
-        this.statusCatalogIndex = parsed.index;
-        this.statusCatalogLoadedAt = parsed.loadedAt;
-      }
-    } catch (e) {
-      /* cache corrupto o inexistente: se ignora, el operador puede recargar */
-    }
-  }
-
-  persistStatusCatalog() {
-    localStorage.setItem(
-      STATUS_CATALOG_STORAGE_KEY,
-      JSON.stringify({ index: this.statusCatalogIndex, loadedAt: this.statusCatalogLoadedAt })
-    );
-  }
-
   statusCatalogAgeMs() {
     return this.statusCatalogLoadedAt ? Date.now() - this.statusCatalogLoadedAt : null;
   }
@@ -90,45 +134,6 @@ class FormApp {
   isStatusCatalogStale() {
     const age = this.statusCatalogAgeMs();
     return age === null || age > STATUS_CATALOG_MAX_AGE_MS;
-  }
-
-  /**
-   * Recibe el CSV plano del catálogo de estatus (validado y producido por
-   * la app "uploader"), lo parsea (columnas ID, ESTATUS, OPTIMIZADA) y lo
-   * indexa por ID para consultas O(1) durante el escaneo. Sin cifrado: es
-   * información operativa de consulta, no auditoría sensible saliendo de
-   * la app — se queda viviendo aquí (localStorage) hasta que se reemplace.
-   */
-  async handleStatusCatalogFile(file) {
-    try {
-      const csvText = await file.text();
-      const { headers, records } = CSVEngine.parseCSV(csvText);
-
-      const idCol = headers.find((h) => h.trim().toLowerCase() === 'id');
-      const estatusCol = headers.find((h) => h.trim().toLowerCase() === 'estatus');
-      const optimizadaCol = headers.find((h) => h.trim().toLowerCase() === 'optimizada');
-      if (!idCol || !estatusCol) {
-        throw new Error('El archivo no tiene las columnas esperadas (ID, ESTATUS, OPTIMIZADA)');
-      }
-
-      const index = {};
-      records.forEach((r) => {
-        const id = (r[idCol] || '').trim();
-        if (!id) return;
-        index[id] = {
-          estatus: (r[estatusCol] || '').trim(),
-          optimizada: optimizadaCol ? (r[optimizadaCol] || '').trim() : '',
-        };
-      });
-
-      this.statusCatalogIndex = index;
-      this.statusCatalogLoadedAt = Date.now();
-      this.persistStatusCatalog();
-      this.showAlert(`Catálogo actualizado: ${Object.keys(index).length} shipments`, 'success');
-    } catch (e) {
-      this.showAlert(`No se pudo cargar el catálogo: ${e.message}`, 'error');
-    }
-    this.showMenu();
   }
 
   /**
@@ -262,8 +267,8 @@ class FormApp {
 
     const ageMs = this.statusCatalogAgeMs();
     const message = ageMs === null
-      ? 'Todavía no cargas el catálogo de estatus. Cárgalo antes de auditar Validación de Contenedor.'
-      : `El catálogo de estatus lleva más de 1 hora sin actualizarse (última carga: ${this.formatCatalogAge(ageMs)}). Verifica que sea la versión más reciente antes de auditar.`;
+      ? 'Todavía no hay ningún catálogo de estatus publicado. Súbelo desde la app "Catálogo de Estatus" antes de auditar Validación de Contenedor.'
+      : `El catálogo de estatus lleva más de 1 hora sin actualizarse (publicado ${this.formatCatalogAge(ageMs)}). Verifica que sea la versión más reciente antes de auditar.`;
 
     banner.innerHTML = `
       <div class="stale-banner-icon">${Icons.svg('alertCircle', { size: 26 })}</div>
@@ -298,32 +303,21 @@ class FormApp {
     status.style.color = 'var(--color-text-muted)';
     status.style.fontSize = '0.9rem';
     status.style.marginBottom = 'var(--spacing-md)';
-    if (this.statusCatalogIndex) {
+    if (this.statusCatalogError) {
+      status.textContent = `No se pudo cargar el catálogo: ${this.statusCatalogError}`;
+    } else if (this.statusCatalogIndex) {
       const count = Object.keys(this.statusCatalogIndex).length;
-      status.textContent = `${count} shipments cargados · actualizado ${this.formatCatalogAge(this.statusCatalogAgeMs())}`;
+      status.textContent = `${count} shipments · publicado ${this.formatCatalogAge(this.statusCatalogAgeMs())}`;
     } else {
-      status.textContent = 'Sin catálogo cargado.';
+      status.textContent = 'Todavía no hay ningún catálogo publicado. Súbelo desde la app "Catálogo de Estatus".';
     }
     section.appendChild(status);
 
-    const fileInput = document.createElement('input');
-    fileInput.type = 'file';
-    fileInput.accept = '.csv,.txt';
-    fileInput.hidden = true;
-    fileInput.addEventListener('change', () => {
-      const file = fileInput.files && fileInput.files[0];
-      fileInput.value = '';
-      if (file) this.handleStatusCatalogFile(file);
-    });
-    section.appendChild(fileInput);
-
-    const loadBtn = document.createElement('button');
-    loadBtn.className = 'btn btn-secondary btn-block';
-    loadBtn.innerHTML = this.statusCatalogIndex
-      ? `${Icons.svg('refresh', { size: 18 })}<span>Actualizar catálogo</span>`
-      : `${Icons.svg('arrowDown', { size: 18 })}<span>Cargar catálogo</span>`;
-    loadBtn.addEventListener('click', () => fileInput.click());
-    section.appendChild(loadBtn);
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'btn btn-secondary btn-block';
+    refreshBtn.innerHTML = `${Icons.svg('refresh', { size: 18 })}<span>Actualizar catálogo</span>`;
+    refreshBtn.addEventListener('click', () => this.refreshCentralCatalog());
+    section.appendChild(refreshBtn);
 
     return section;
   }
