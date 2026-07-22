@@ -2,17 +2,19 @@
  * Uploader de Catálogo de Estatus
  *
  * Toma el CSV físico (columnas ID, ESTATUS, OPTIMIZADA) que produce el
- * sistema de origen, lo valida, lo cifra con el mismo passphrase compartido
- * que usa la app de Auditorías SVC (CryptoEngine/CryptoGate, AES-256-GCM) y
- * lo descarga. Ese archivo cifrado es el que luego se sube a mano en el
- * botón "Cargar catálogo" del menú de la app de auditoría.
+ * sistema de origen, valida que tenga las columnas correctas, muestra un
+ * preview, y lo deja listo para descargar tal cual (sin cifrar — no es
+ * auditoría sensible viajando fuera de Grid, es información operativa de
+ * consulta). Ese archivo es el que se carga en el botón "Cargar catálogo"
+ * del menú de la app de auditoría, y se queda viviendo ahí hasta que se
+ * reemplace por uno nuevo.
  *
  * A propósito NO usa form-engine.js: no es un asistente de una pregunta por
- * pantalla, es un conversor de un archivo existente (potencialmente cientos
- * de filas) a su versión cifrada.
+ * pantalla, es un validador de un archivo existente (potencialmente cientos
+ * de filas).
  */
 
-const LAST_ENCRYPTED_KEY = 'uploader_last_encrypted_at';
+const LAST_GENERATED_KEY = 'uploader_last_generated_at';
 const STALE_MAX_AGE_MS = 60 * 60 * 1000;
 
 class UploaderApp {
@@ -35,13 +37,13 @@ class UploaderApp {
     right.innerHTML = `<span class="navbar-title">Catálogo de Estatus</span>`;
   }
 
-  lastEncryptedAt() {
-    const raw = localStorage.getItem(LAST_ENCRYPTED_KEY);
+  lastGeneratedAt() {
+    const raw = localStorage.getItem(LAST_GENERATED_KEY);
     return raw ? Number(raw) : null;
   }
 
   isStale() {
-    const at = this.lastEncryptedAt();
+    const at = this.lastGeneratedAt();
     return at === null || Date.now() - at > STALE_MAX_AGE_MS;
   }
 
@@ -60,12 +62,12 @@ class UploaderApp {
     content.className = 'content';
 
     if (this.isStale()) {
-      const at = this.lastEncryptedAt();
+      const at = this.lastGeneratedAt();
       const banner = document.createElement('div');
       banner.className = 'stale-banner';
       const message = at === null
-        ? 'Todavía no has generado ningún catálogo cifrado en este dispositivo.'
-        : `El último catálogo cifrado que generaste fue ${this.formatAge(Date.now() - at)}. Si el estatus de los shipments cambió, genera uno nuevo antes de compartirlo.`;
+        ? 'Todavía no has generado ningún catálogo en este dispositivo.'
+        : `El último catálogo que generaste fue ${this.formatAge(Date.now() - at)}. La información debe ser siempre la más reciente — verifica el estatus de los shipments antes de generar uno nuevo.`;
       banner.innerHTML = `
         <div class="stale-banner-icon">${Icons.svg('alertCircle', { size: 26 })}</div>
         <div class="stale-banner-text">${message}</div>
@@ -75,13 +77,12 @@ class UploaderApp {
 
     const intro = document.createElement('div');
     intro.innerHTML = `
-      <h1 class="step-question" style="margin-bottom: var(--spacing-xs);">Cifrar catálogo de estatus</h1>
-      <p style="color: var(--color-text-muted); font-size: var(--font-body);">Sube el CSV físico con columnas ID, ESTATUS, OPTIMIZADA. Se cifra en tu navegador antes de descargarlo — nunca sale en texto plano.</p>
+      <h1 class="step-question" style="margin-bottom: var(--spacing-xs);">Catálogo de estatus</h1>
+      <p style="color: var(--color-text-muted); font-size: var(--font-body);">Sube el CSV físico con columnas ID, ESTATUS, OPTIMIZADA. Se valida en tu navegador y queda listo para cargarlo en la app de auditoría, donde se queda viviendo hasta que subas uno nuevo.</p>
     `;
     content.appendChild(intro);
 
     content.appendChild(this.renderUploadCard());
-    content.appendChild(this.renderPassphraseSection());
     content.appendChild(this.renderNavSection());
 
     app.appendChild(content);
@@ -165,13 +166,13 @@ class UploaderApp {
       this.render();
     });
 
-    const encryptBtn = document.createElement('button');
-    encryptBtn.className = 'btn btn-primary btn-block';
-    encryptBtn.innerHTML = `${Icons.svg('checkCircle', { size: 18 })}<span>Cifrar y Descargar</span>`;
-    encryptBtn.addEventListener('click', () => this.encryptAndDownload());
+    const downloadBtn = document.createElement('button');
+    downloadBtn.className = 'btn btn-primary btn-block';
+    downloadBtn.innerHTML = `${Icons.svg('checkCircle', { size: 18 })}<span>Descargar catálogo validado</span>`;
+    downloadBtn.addEventListener('click', () => this.downloadValidated());
 
     actions.appendChild(changeBtn);
-    actions.appendChild(encryptBtn);
+    actions.appendChild(downloadBtn);
     card.appendChild(actions);
 
     return card;
@@ -236,47 +237,18 @@ class UploaderApp {
     this.render();
   }
 
-  async encryptAndDownload() {
-    try {
-      const passphrase = await CryptoGate.ensurePassphrase();
-      const encrypted = await CryptoEngine.encryptText(this.rawCsvText, passphrase, 'csv');
+  downloadValidated() {
+    const blob = new Blob([this.rawCsvText], { type: 'text/csv;charset=utf-8' });
+    const url = URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    a.download = `estatus_shipments_${new Date().toISOString().split('T')[0]}.csv`;
+    a.click();
+    URL.revokeObjectURL(url);
 
-      const blob = new Blob([encrypted], { type: 'text/csv;charset=utf-8' });
-      const url = URL.createObjectURL(blob);
-      const a = document.createElement('a');
-      a.href = url;
-      a.download = `estatus_shipments_cifrado_${new Date().toISOString().split('T')[0]}.csv`;
-      a.click();
-      URL.revokeObjectURL(url);
-
-      localStorage.setItem(LAST_ENCRYPTED_KEY, String(Date.now()));
-      this.showAlert('Catálogo cifrado y descargado. Compártelo con el equipo de auditoría.', 'success');
-      this.render();
-    } catch (e) {
-      const msg = e && e.message === 'Operación cancelada' ? 'Operación cancelada' : `No se pudo cifrar: ${e.message}`;
-      this.showAlert(msg, e && e.message === 'Operación cancelada' ? 'info' : 'error');
-    }
-  }
-
-  renderPassphraseSection() {
-    const wrap = document.createElement('div');
-    wrap.style.marginTop = 'var(--spacing-lg)';
-    wrap.style.textAlign = 'center';
-
-    const hasPassphrase = !!CryptoEngine.getSessionPassphrase();
-    const btn = document.createElement('button');
-    btn.className = 'btn btn-secondary btn-sm';
-    btn.textContent = hasPassphrase ? 'Cambiar contraseña de encriptación' : 'Configurar contraseña de encriptación';
-    btn.addEventListener('click', async () => {
-      try {
-        await CryptoGate.promptPassphrase();
-        this.showAlert('Contraseña guardada en este dispositivo', 'success');
-      } catch (e) {
-        this.showAlert('Operación cancelada', 'info');
-      }
-    });
-    wrap.appendChild(btn);
-    return wrap;
+    localStorage.setItem(LAST_GENERATED_KEY, String(Date.now()));
+    this.showAlert('Catálogo validado y descargado. Cárgalo en la app de auditoría.', 'success');
+    this.render();
   }
 
   /**
@@ -285,7 +257,7 @@ class UploaderApp {
    */
   renderNavSection() {
     const wrap = document.createElement('div');
-    wrap.style.marginTop = 'var(--spacing-sm)';
+    wrap.style.marginTop = 'var(--spacing-lg)';
     wrap.style.textAlign = 'center';
 
     const link = document.createElement('a');

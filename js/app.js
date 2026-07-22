@@ -93,17 +93,15 @@ class FormApp {
   }
 
   /**
-   * Recibe el archivo cifrado del catálogo de estatus (producido por la app
-   * "uploader"), lo desencripta con el mismo passphrase compartido de
-   * CryptoGate, lo parsea como CSV (columnas ID, ESTATUS, OPTIMIZADA) y lo
-   * indexa por ID para consultas O(1) durante el escaneo.
+   * Recibe el CSV plano del catálogo de estatus (validado y producido por
+   * la app "uploader"), lo parsea (columnas ID, ESTATUS, OPTIMIZADA) y lo
+   * indexa por ID para consultas O(1) durante el escaneo. Sin cifrado: es
+   * información operativa de consulta, no auditoría sensible saliendo de
+   * la app — se queda viviendo aquí (localStorage) hasta que se reemplace.
    */
   async handleStatusCatalogFile(file) {
     try {
-      const rawText = await file.text();
-      const passphrase = await CryptoGate.ensurePassphrase();
-      this.showAlert('Desencriptando catálogo...', 'info');
-      const csvText = await CryptoEngine.decryptText(rawText, passphrase);
+      const csvText = await file.text();
       const { headers, records } = CSVEngine.parseCSV(csvText);
 
       const idCol = headers.find((h) => h.trim().toLowerCase() === 'id');
@@ -128,8 +126,7 @@ class FormApp {
       this.persistStatusCatalog();
       this.showAlert(`Catálogo actualizado: ${Object.keys(index).length} shipments`, 'success');
     } catch (e) {
-      const msg = e && e.message === 'Operación cancelada' ? 'Operación cancelada' : `No se pudo cargar el catálogo: ${e.message}`;
-      this.showAlert(msg, 'error');
+      this.showAlert(`No se pudo cargar el catálogo: ${e.message}`, 'error');
     }
     this.showMenu();
   }
@@ -311,7 +308,7 @@ class FormApp {
 
     const fileInput = document.createElement('input');
     fileInput.type = 'file';
-    fileInput.accept = '.json,.csv,.zip,.txt';
+    fileInput.accept = '.csv,.txt';
     fileInput.hidden = true;
     fileInput.addEventListener('change', () => {
       const file = fileInput.files && fileInput.files[0];

@@ -5,7 +5,7 @@ Dashboard de consolidación en vivo para el log "Validación de Contenedor" (Aud
 ## 🎯 Qué es
 
 Un **dashboard interactivo en Grid** que:
-- Ingiere **CSVs o ZIPs** cargados manualmente (drag & drop), incluyendo el catálogo cifrado descargado desde la app de captura
+- Ingiere **CSVs o ZIPs** cargados manualmente (drag & drop), incluyendo los exports cifrados que descarga la app de captura (auditorías, no el catálogo de estatus — ese viaja siempre en plano y nunca llega a este dashboard)
 - **Auto-detecta** el CSV del log por sus headers
 - Descomprime ZIPs con fotos integradas (JSZip)
 - Deduplica automático por timestamp + shipment

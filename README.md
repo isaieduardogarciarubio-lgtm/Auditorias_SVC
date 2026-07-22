@@ -2,25 +2,32 @@
 
 Una aplicación web minimalista para recopilar datos en formularios dinámicos y exportarlos a CSV compatible con Grid.
 
-## 📌 Estado actual (base clonada, en planeación)
+## 📌 Estado actual
 
 Este repo se clonó desde el branch `claude/grid-webapp-planning-aat9tw` de `Formulario_LP_XMT1` como
-punto de partida. Se removieron los 5 logs originales de Auditorías XMT1
-(`destino_doca`, `fury`, `contenerizado`, `linehaul`, `inbound_fm`) de `js/forms-config.js` — hoy
-`FORMS_CONFIG` está vacío. Pendiente de construir (no incluido en este clon):
+punto de partida, reemplazando los 5 logs originales de Auditorías XMT1 por uno nuevo:
 
-- El nuevo log: escaneo de Shipment ID + comparación contra un catálogo de estatus (columnas
-  `ID, ESTATUS, OPTIMIZADA`), con guardado automático "En contenedor" / "No en contenedor" y paso
-  de evidencia fotográfica cuando el estatus no es `in_container`.
-- La app "uploader" para subir el CSV físico de estatus (nueva app HTML en este mismo repo).
-- El botón de navegación entre apps (captura ↔ uploader ↔ dashboard).
-- El aviso de "CSV sin cambios hace más de 1 hora" en ambas apps.
-- Adaptar `grid/consolidado_auditoria.html` al nuevo log — hoy conserva sin cambios la lógica de
-  los 5 logs viejos (si/else por `currentLog`), porque limpiarla a fondo es un refactor real, no
-  una limpieza mecánica, y corresponde a la fase de construcción.
-- Rediseñar la persistencia de registros de la app de captura para que no se pierdan por
-  refresh/cierre de pestaña antes de descargar (hoy sigue siendo solo en memoria, igual que en
-  el branch de origen).
+- **Log "Validación de Contenedor"** (`js/forms-config.js`): escanea Shipment ID, lo compara contra
+  el catálogo de estatus cargado en el menú (columnas `ID, ESTATUS, OPTIMIZADA`). Si `ESTATUS ==
+  in_container` guarda automático "En contenedor"; si es distinto, guarda "No en contenedor" y pide
+  foto de evidencia. `OPTIMIZADA` es informativa (se muestra y se guarda). Un Shipment ausente del
+  catálogo bloquea el registro con opción de reintentar.
+- **Catálogo de estatus**: se carga como CSV plano (sin cifrar — es información operativa de
+  consulta, no auditoría sensible) desde el botón "Cargar catálogo" del menú; se cachea en
+  localStorage y se queda viviendo en la app hasta que se reemplaza por uno nuevo. Aviso grande y
+  persistente si lleva más de 1 hora sin actualizarse (o nunca se cargó).
+- **App "uploader"** (`uploader/`): toma el CSV físico de estatus, valida sus columnas, muestra un
+  preview y lo deja listo para descargar (mismo formato plano). Tiene su propio aviso de "más de 1
+  hora sin generar un catálogo nuevo".
+- **Navegación entre apps**: cada app enlaza a la otra desde el pie del menú, junto al botón de
+  cambiar contraseña de encriptación (esa contraseña es solo para las auditorías exportadas hacia
+  el dashboard — el catálogo de estatus no la usa).
+- **Persistencia anti-pérdida**: los registros capturados se respaldan en IndexedDB apenas se
+  agregan (`js/storage-engine.js`) y se recuperan automáticamente si se cierra la pestaña o falla el
+  navegador antes de descargarlos. Solo se borran al eliminarlos a mano o con "Limpiar Todo".
+- **`grid/consolidado_auditoria.html`**: adaptado al log nuevo (KPIs, gráficas, detección de headers,
+  tabla) y verificado ingiriendo el ZIP cifrado real que exporta la app de captura (múltiples
+  auditorías + fotos en un solo archivo).
 
 ## 🚀 Características
 
