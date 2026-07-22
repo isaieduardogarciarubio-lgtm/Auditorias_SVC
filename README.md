@@ -16,9 +16,11 @@ punto de partida, reemplazando los 5 logs originales de Auditorías XMT1 por uno
   consulta, no auditoría sensible) desde el botón "Cargar catálogo" del menú; se cachea en
   localStorage y se queda viviendo en la app hasta que se reemplaza por uno nuevo. Aviso grande y
   persistente si lleva más de 1 hora sin actualizarse (o nunca se cargó).
-- **App "uploader"** (`uploader/`): toma el CSV físico de estatus, valida sus columnas, muestra un
-  preview y lo deja listo para descargar (mismo formato plano). Tiene su propio aviso de "más de 1
-  hora sin generar un catálogo nuevo".
+- **App "uploader"** (`uploader/`): toma el CSV físico de estatus (con drag & drop), valida sus
+  columnas y lo escribe directo al mismo `localStorage` que lee la app de auditoría — como ambas
+  apps viven en el mismo origen de GitHub Pages, el catálogo queda disponible ahí de inmediato, sin
+  subirlo dos veces. El botón "Cargar catálogo" de la app de auditoría sigue existiendo como
+  respaldo manual para cuando el archivo viaja a un dispositivo distinto al que lo validó.
 - **Navegación entre apps**: cada app enlaza a la otra desde el pie del menú, junto al botón de
   cambiar contraseña de encriptación (esa contraseña es solo para las auditorías exportadas hacia
   el dashboard — el catálogo de estatus no la usa).

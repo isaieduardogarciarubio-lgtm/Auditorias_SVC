@@ -1141,6 +1141,12 @@ select.step-input {
   color: var(--color-text-primary);
 }
 
+.photo-dropzone.is-dragover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-text-primary);
+  color: var(--color-text-primary);
+}
+
 .photo-dropzone-label {
   font-size: var(--font-button);
   font-weight: 600;
