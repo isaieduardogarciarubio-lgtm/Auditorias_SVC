@@ -55,6 +55,13 @@ export default {
       return json({ error: validationError }, 400);
     }
 
+    // Distingue "el secreto no está configurado" de "GitHub rechazó el
+    // token" — sin esto, ambos casos llegan al navegador como el mismo
+    // "Bad credentials" genérico de GitHub, imposible de diagnosticar.
+    if (!env.GITHUB_TOKEN) {
+      return json({ error: 'missing_github_token_env_var', detail: 'La variable GITHUB_TOKEN no está configurada (o el nombre no coincide exactamente) en este Worker.' }, 500);
+    }
+
     try {
       const rows = csv.trim().split('\n').length - 1; // menos la fila de encabezado
       const meta = JSON.stringify({ generatedAt: new Date().toISOString(), rows }, null, 2);

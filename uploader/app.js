@@ -33,6 +33,7 @@ class UploaderApp {
   }
 
   async init() {
+    DebugConsole.setup();
     this.setHeader();
     await this.loadPublicCatalogStatus();
     this.render();
@@ -48,10 +49,12 @@ class UploaderApp {
   /** Mismo mecanismo de lectura pública que usa la app de auditoría. */
   async loadPublicCatalogStatus() {
     try {
+      DebugConsole.log(`loadPublicCatalogStatus: GET ${STATUS_CATALOG_CSV_URL} + ${STATUS_CATALOG_META_URL}`);
       const [csvRes, metaRes] = await Promise.all([
         fetch(STATUS_CATALOG_CSV_URL, { cache: 'no-store' }),
         fetch(STATUS_CATALOG_META_URL, { cache: 'no-store' }),
       ]);
+      DebugConsole.log(`loadPublicCatalogStatus: csv=${csvRes.status}, meta=${metaRes.status}`);
       if (!csvRes.ok || !metaRes.ok) {
         this.publicCatalog = null;
         return;
@@ -63,8 +66,10 @@ class UploaderApp {
         count: records.length,
         generatedAt: meta.generatedAt ? new Date(meta.generatedAt).getTime() : null,
       };
+      DebugConsole.log(`loadPublicCatalogStatus: ${records.length} shipments, generatedAt=${meta.generatedAt}`);
     } catch (e) {
       this.publicCatalog = null;
+      DebugConsole.log(`loadPublicCatalogStatus falló: ${e.message}`, 'warn');
     }
   }
 
@@ -300,12 +305,21 @@ class UploaderApp {
     this.render();
 
     try {
+      DebugConsole.log(`publishCatalog: POST ${PUBLISH_WORKER_URL} (${this.parsedPreview.records.length} filas)`);
       const res = await fetch(PUBLISH_WORKER_URL, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ csv: this.parsedPreview.rawText }),
       });
-      const data = await res.json().catch(() => ({}));
+      const rawBody = await res.text();
+      DebugConsole.log(`publishCatalog: HTTP ${res.status} — ${rawBody}`, res.ok ? 'info' : 'error');
+
+      let data = {};
+      try {
+        data = JSON.parse(rawBody);
+      } catch (e) {
+        /* respuesta no-JSON; data queda vacío, el mensaje crudo ya se logueó arriba */
+      }
       if (!res.ok || !data.ok) {
         throw new Error(data.detail || data.error || `HTTP ${res.status}`);
       }
@@ -318,6 +332,7 @@ class UploaderApp {
     } catch (e) {
       this.publishing = false;
       this.render();
+      DebugConsole.log(`publishCatalog falló: ${e.message}`, 'error');
       this.showAlert(`No se pudo publicar: ${e.message}`, 'error');
     }
   }
