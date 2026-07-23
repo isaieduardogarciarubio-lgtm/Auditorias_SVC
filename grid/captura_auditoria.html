@@ -320,7 +320,9 @@ body {
 }
 
 .step-back-btn {
-  margin-left: calc(var(--spacing-sm) * -1);
+  width: 52px;
+  height: 52px;
+  margin-left: -14px;
 }
 
 .step-progress {
@@ -906,11 +908,6 @@ select.step-input {
       <div style="display: flex; gap: 8px; align-items: center;">
         <span class="status-badge" id="status-badge">0 pendientes</span>
         <div class="user-avatar" id="user-avatar" title=""></div>
-        <button class="icon-btn-plain" id="menu-btn" title="Inicio">
-          <svg class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
-            <path d="M3 10v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V10"/><path d="M3 10l9-7 9 7"/><path d="M10 15h4v6h-4z"/>
-          </svg>
-        </button>
       </div>
     </div>
   </nav>
@@ -1576,7 +1573,7 @@ class FormEngine {
     backBtn.type = 'button';
     backBtn.className = 'icon-btn-plain step-back-btn';
     backBtn.setAttribute('aria-label', 'Atrás');
-    backBtn.innerHTML = Icons.svg('arrowLeft', { size: 20 });
+    backBtn.innerHTML = Icons.svg('arrowLeft', { size: 28 });
     backBtn.addEventListener('click', () => this.back());
     row.appendChild(backBtn);
 
@@ -3122,11 +3119,6 @@ window.addEventListener('online', () => {
 
 window.addEventListener('offline', () => {
   DebugConsole.log('Perdida de conexión', 'warn');
-});
-
-// Menu button
-document.getElementById('menu-btn').addEventListener('click', () => {
-  window.app.renderMenu();
 });
 </script>
 
