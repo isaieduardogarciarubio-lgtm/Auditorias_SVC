@@ -312,12 +312,22 @@ body {
   padding-bottom: 120px;
 }
 
+.step-progress-row {
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.step-back-btn {
+  margin-left: calc(var(--spacing-sm) * -1);
+}
+
 .step-progress {
   font-size: 0.8rem;
   font-weight: 600;
   color: var(--color-text-muted);
   letter-spacing: 0.03em;
-  margin-bottom: var(--spacing-md);
 }
 
 .step-question {
@@ -414,37 +424,6 @@ select.step-input {
 }
 
 /* Scanner */
-
-.scan-mode-toggle {
-  display: flex;
-  gap: var(--spacing-xs);
-  background: var(--color-surface);
-  border-radius: var(--radius-pill);
-  padding: 4px;
-  margin-top: var(--spacing-md);
-}
-
-.scan-mode-btn {
-  flex: 1;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  gap: 6px;
-  border: none;
-  background: transparent;
-  color: var(--color-text-muted);
-  font-size: 0.85rem;
-  font-weight: 600;
-  padding: 8px 12px;
-  border-radius: var(--radius-pill);
-  cursor: pointer;
-  transition: background 0.15s ease, color 0.15s ease;
-}
-
-.scan-mode-btn.active {
-  background: var(--color-surface-elevated);
-  color: var(--color-text-primary);
-}
 
 .scanner-body {
   margin-top: var(--spacing-md);
@@ -1586,10 +1565,27 @@ class FormEngine {
     const total = visible.length;
     const pos = visible.indexOf(this.stepIndex) + 1;
 
+    const row = document.createElement('div');
+    row.className = 'step-progress-row';
+
+    // Botón atrás visible: en iOS no hay gesto/botón de sistema para
+    // retroceder dentro del documento de Grid, así que el paso a paso
+    // necesita su propia forma de volver (mismo destino que el back por
+    // hardware en Android: paso anterior, o al menú desde el primer campo).
+    const backBtn = document.createElement('button');
+    backBtn.type = 'button';
+    backBtn.className = 'icon-btn-plain step-back-btn';
+    backBtn.setAttribute('aria-label', 'Atrás');
+    backBtn.innerHTML = Icons.svg('arrowLeft', { size: 20 });
+    backBtn.addEventListener('click', () => this.back());
+    row.appendChild(backBtn);
+
     const progress = document.createElement('div');
     progress.className = 'step-progress';
     progress.textContent = `${pos} / ${total}`;
-    return progress;
+    row.appendChild(progress);
+
+    return row;
   }
 
   buildInput(field) {
@@ -1689,11 +1685,6 @@ class FormEngine {
     h1.textContent = field.label;
     screen.appendChild(h1);
 
-    const toggle = document.createElement('div');
-    toggle.className = 'scan-mode-toggle';
-    screen.appendChild(toggle);
-    this.scanModeToggleEl = toggle;
-
     const body = document.createElement('div');
     body.className = 'scanner-body';
     screen.appendChild(body);
@@ -1707,113 +1698,7 @@ class FormEngine {
     this.scannerBody = body;
     this.supportEl = support;
 
-    if (!FormEngine.preferredScanMode) {
-      FormEngine.preferredScanMode = FormEngine.detectDefaultScanMode();
-    }
-    this.scanMode = FormEngine.preferredScanMode;
-
-    this.renderScanModeToggle(field);
-    this.enterModeState(field);
-  }
-
-  /**
-   * Los dispositivos táctiles (smartphone/tablet) suelen tener cámara
-   * trasera utilizable; las PC y terminales con lector de código de barras
-   * conectado (HID: se comportan como teclado) casi nunca la tienen, o la
-   * cámara integrada no sirve para escanear de cerca. `pointer: coarse`
-   * es la señal más confiable disponible sin pedir permisos: dedo = touch,
-   * mouse/trackpad = puntero fino.
-   */
-  static detectDefaultScanMode() {
-    try {
-      if (window.matchMedia && window.matchMedia('(pointer: coarse)').matches) {
-        return 'camera';
-      }
-    } catch (e) {}
-    return 'physical';
-  }
-
-  renderScanModeToggle(field) {
-    if (!this.scanModeToggleEl) return;
-    this.scanModeToggleEl.innerHTML = `
-      <button type="button" class="scan-mode-btn ${this.scanMode === 'camera' ? 'active' : ''}" data-mode="camera">
-        ${Icons.svg('camera', { size: 16 })}<span>Cámara</span>
-      </button>
-      <button type="button" class="scan-mode-btn ${this.scanMode === 'physical' ? 'active' : ''}" data-mode="physical">
-        ${Icons.svg('keyboard', { size: 16 })}<span>Lector / Teclado</span>
-      </button>
-    `;
-    this.scanModeToggleEl.querySelectorAll('.scan-mode-btn').forEach((btn) => {
-      btn.addEventListener('click', () => {
-        const mode = btn.dataset.mode;
-        if (mode === this.scanMode) return;
-        this.scanMode = mode;
-        FormEngine.preferredScanMode = mode;
-        this.renderScanModeToggle(field);
-        this.enterModeState(field);
-      });
-    });
-  }
-
-  enterModeState(field) {
-    if (this.scanMode === 'physical') {
-      this.enterKeyboardScanState(field);
-    } else {
-      this.enterScanningState(field);
-    }
-  }
-
-  /**
-   * Modo para lector físico de código de barras (HID: USB/Bluetooth que se
-   * comporta como teclado — "escribe" el código y termina con Enter) o para
-   * teclear el código a mano en una PC sin cámara utilizable. Reenfoca el
-   * input automáticamente porque un lector HID solo escribe donde esté el
-   * foco, y en un kiosco/tablet es fácil perderlo con un toque accidental.
-   */
-  enterKeyboardScanState(field, note) {
-    this.stopScanner();
-    this.supportEl.textContent = note || 'Apunta el lector al código, o escríbelo y presiona Enter.';
-    this.supportEl.classList.toggle('error', !!note);
-
-    this.scannerBody.innerHTML = '';
-    const inputWrap = document.createElement('div');
-    inputWrap.className = 'step-input-wrap';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'step-input';
-    input.placeholder = field.placeholder || 'Escanea o escribe el código';
-    input.value = this.values[field.id] || '';
-    inputWrap.appendChild(input);
-    this.scannerBody.appendChild(inputWrap);
-
-    this.currentInput = input;
-    this.inputWrapEl = inputWrap;
-    this.errorTargetEl = inputWrap;
-
-    input.addEventListener('input', () => this.clearError());
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.confirmManual(field);
-      }
-    });
-    input.addEventListener('blur', () => {
-      setTimeout(() => {
-        if (this.scanMode === 'physical' && this.currentInput === input && document.body.contains(input)) {
-          input.focus();
-        }
-      }, 50);
-    });
-
-    const nextBtn = this.makeButton(this.isLastStep ? 'Agregar Registro' : 'Continuar', {
-      primary: true,
-      icon: this.isLastStep ? 'check' : 'arrowRight',
-      iconAfter: true,
-      onClick: () => this.confirmManual(field),
-    });
-    this.setActions([nextBtn]);
-
-    setTimeout(() => input.focus(), 60);
+    this.enterScanningState(field);
   }
 
   async enterScanningState(field) {
@@ -2107,6 +1992,18 @@ class FormEngine {
         e.preventDefault();
         this.confirmManual(field);
       }
+    });
+    // Un lector físico de código de barras (HID: USB/Bluetooth que se
+    // comporta como teclado) solo "escribe" donde esté el foco — si el
+    // operador toca otra parte de la pantalla sin querer, reenfocar evita
+    // que la siguiente lectura se pierda. document.body.contains(input)
+    // evita reenfocar un input que ya no existe (pantalla cambió).
+    input.addEventListener('blur', () => {
+      setTimeout(() => {
+        if (this.currentInput === input && document.body.contains(input)) {
+          input.focus();
+        }
+      }, 50);
     });
 
     const cameraBtn = this.makeButton('Usar cámara', {
@@ -2867,8 +2764,6 @@ class CapturaApp {
 
     root.innerHTML = `
       <div style="padding-bottom: 20px;">
-        <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 16px;">Auditorías Disponibles</h2>
-
         <!-- Catalog Status -->
         ${catalogReady ? `
           <div class="status-line">
