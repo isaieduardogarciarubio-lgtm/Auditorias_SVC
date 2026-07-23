@@ -2657,22 +2657,24 @@ class CapturaApp {
         <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 16px;">Auditorías Disponibles</h2>
 
         <!-- Catalog Status -->
-        <div style="background: ${catalogReady ? '#0a1a0a' : '#1a0a0a'}; border: 1px solid ${catalogReady ? '#1a3a1a' : '#3a1a1a'}; border-radius: var(--radius-card); padding: 16px; margin-bottom: 20px;">
-          <div style="display: flex; align-items: flex-start; gap: 12px;">
-            <div style="font-size: 20px; flex-shrink: 0;">${catalogReady ? '✓' : '⚠'}</div>
-            <div style="flex: 1;">
-              <div style="font-weight: 700; color: ${catalogReady ? '#51cf66' : '#ffd43b'}; margin-bottom: 4px;">
-                ${catalogReady ? 'Catálogo cargado' : 'Sin catálogo'}
-              </div>
-              <div style="font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4;">
-                ${catalogReady ? `
-                  <div>${Object.keys(this.statusCatalogIndex).length} shipments disponibles para auditar</div>
-                  <div style="margin-top: 4px; font-size: 0.8rem; color: #888;">${catalogStatus}</div>
-                ` : 'Contacta al administrador para que cargue el catálogo'}
+        ${catalogReady ? `
+          <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 16px; padding-left: 2px;">
+            <span style="width: 6px; height: 6px; border-radius: 50%; background: #51cf66; flex-shrink: 0;"></span>
+            <span style="font-size: 0.78rem; color: var(--color-text-muted);">
+              Catálogo actualizado · ${Object.keys(this.statusCatalogIndex).length} shipments · ${catalogStatus.replace(/^Cargado /, '')}
+            </span>
+          </div>
+        ` : `
+          <div style="background: #1a0a0a; border: 1px solid #3a1a1a; border-radius: var(--radius-card); padding: 16px; margin-bottom: 20px;">
+            <div style="display: flex; align-items: flex-start; gap: 12px;">
+              <div style="font-size: 20px; flex-shrink: 0;">⚠</div>
+              <div style="flex: 1;">
+                <div style="font-weight: 700; color: #ffd43b; margin-bottom: 4px;">Sin catálogo</div>
+                <div style="font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4;">Contacta al administrador para que cargue el catálogo</div>
               </div>
             </div>
           </div>
-        </div>
+        `}
 
         <!-- Start Audit Card -->
         <div onclick="${catalogReady ? "window.app.startForm('contenedor')" : ''}" style="background: var(--color-surface); border-radius: var(--radius-card); padding: 20px; cursor: ${catalogReady ? 'pointer' : 'default'}; margin-bottom: 12px; transition: all 0.15s ease; ${!catalogReady ? 'opacity: 0.5;' : ''}">
