@@ -1094,11 +1094,38 @@ class ScannerEngine {
   async startZxing() {
     this.engine = 'zxing';
     this.zxingReader = new window.ZXing.BrowserMultiFormatReader();
+
+    // Intercept console methods to silence ZXing frame errors
+    const originalError = console.error;
+    const originalWarn = console.warn;
+    let suppressZXing = true;
+
+    console.error = function(...args) {
+      const msg = args[0]?.toString?.() || '';
+      // Silence ZXing "No MultiFormat Readers" and NotFoundException errors
+      if (suppressZXing && (msg.includes('No MultiFormat Readers') || msg.includes('NotFoundException'))) {
+        return;
+      }
+      originalError.apply(console, args);
+    };
+
+    console.warn = function(...args) {
+      const msg = args[0]?.toString?.() || '';
+      if (suppressZXing && msg.includes('NotFoundException')) {
+        return;
+      }
+      originalWarn.apply(console, args);
+    };
+
     this.zxingReader.decodeFromStream(this.stream, this.videoEl, (result, err) => {
       if (!this.running) return;
       if (result) {
+        // Log successful detection only
+        console.log('[ZXing] Barcode detected:', result.getText());
         this.handleResult(result.getText(), this.mapZxingFormat(result.getBarcodeFormat()));
       }
+      // Silently ignore NotFoundException and other scan frame errors
+      // (normal when searching for codes on each frame)
     });
   }
 
@@ -1448,7 +1475,7 @@ class FormEngine {
 
   async enterScanningState(field) {
     this.stopScanner();
-    this.supportEl.textContent = 'Apunta la cámara al código QR o de barras.';
+    this.supportEl.textContent = 'Escaneando... Apunta la cámara al código.';
     this.supportEl.classList.remove('error');
 
     this.scannerBody.innerHTML = `
@@ -1458,14 +1485,14 @@ class FormEngine {
       </div>
     `;
 
-    const manualBtn = this.makeButton('Escribir manualmente', {
+    const manualBtn = this.makeButton('Entrada Manual', {
       icon: 'keyboard',
       onClick: () => this.enterManualState(field),
     });
     this.setActions([manualBtn]);
 
     if (!ScannerEngine.isSupported()) {
-      this.enterManualState(field, 'Tu navegador no permite usar la cámara. Escribe el código manualmente.');
+      this.enterCameraUnavailable(field);
       return;
     }
 
@@ -1478,12 +1505,158 @@ class FormEngine {
       });
       this.maybeAddTorchButton();
     } catch (err) {
-      const msg =
-        err && err.name === 'NotAllowedError'
-          ? 'Permiso de cámara denegado. Escribe el código manualmente.'
-          : 'No se pudo abrir la cámara. Escribe el código manualmente.';
-      this.enterManualState(field, msg);
+      this.enterCameraUnavailable(field);
     }
+  }
+
+  enterCameraUnavailable(field) {
+    this.stopScanner();
+    this.scannerBody.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">${Icons.svg('alertCircle', { size: 48 })}</div>
+        <p style="font-size: 1rem; margin-bottom: 16px;">Cámara no disponible</p>
+        <p style="font-size: 0.9rem; color: var(--color-text-muted); margin-bottom: 24px;">Usa uno de los métodos alternativos para ingresar el código.</p>
+      </div>
+    `;
+
+    this.supportEl.textContent = 'Cámara no disponible — selecciona una alternativa';
+    this.supportEl.classList.add('error');
+
+    const manualBtn = this.makeButton('Escribir manualmente', {
+      primary: true,
+      icon: 'keyboard',
+      onClick: () => this.enterManualState(field),
+    });
+    const uploadBtn = this.makeButton('Escanear desde imagen', {
+      icon: 'image',
+      onClick: () => this.enterImageUploadState(field),
+    });
+    this.setActions([uploadBtn, manualBtn]);
+  }
+
+  enterImageUploadState(field) {
+    this.stopScanner();
+    this.supportEl.textContent = 'Carga una imagen que contenga el código QR o de barras.';
+    this.supportEl.classList.remove('error');
+
+    this.scannerBody.innerHTML = `
+      <button type="button" class="photo-dropzone">
+        <span>${Icons.svg('image', { size: 30 })}</span>
+        <span class="photo-dropzone-label">Carga una imagen</span>
+      </button>
+      <input type="file" accept="image/*" class="image-input" hidden />
+    `;
+
+    const dropzone = this.scannerBody.querySelector('.photo-dropzone');
+    const fileInput = this.scannerBody.querySelector('.image-input');
+
+    dropzone.addEventListener('click', () => fileInput.click());
+
+    const processImage = async (file) => {
+      if (!file) return;
+      try {
+        this.supportEl.textContent = 'Analizando imagen...';
+        this.supportEl.classList.remove('error');
+
+        // Load image and try to detect barcode with ZXing
+        const reader = new FileReader();
+        reader.onload = async (e) => {
+          const img = new Image();
+          img.onload = async () => {
+            try {
+              if (window.ZXing) {
+                const canvas = document.createElement('canvas');
+                canvas.width = img.width;
+                canvas.height = img.height;
+                const ctx = canvas.getContext('2d');
+                ctx.drawImage(img, 0, 0);
+
+                const imgData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+                const scanReader = new window.ZXing.BrowserMultiFormatReader();
+
+                // Suppress ZXing frame errors for image scanning
+                const origErr = console.error;
+                console.error = function(...args) {
+                  const msg = args[0]?.toString?.() || '';
+                  if (msg.includes('No MultiFormat') || msg.includes('NotFoundException')) return;
+                  origErr.apply(console, args);
+                };
+
+                try {
+                  const result = scanReader.decodeFromImageData(imgData);
+                  console.error = origErr; // Restore
+
+                  if (result) {
+                    console.log('[ZXing] Barcode from image detected:', result.getText());
+                    this.vibrate(60);
+                    this.onScanDetected(field, result.getText(), this.mapZxingFormat(result.getBarcodeFormat()));
+                    return;
+                  }
+                } finally {
+                  console.error = origErr; // Ensure restore
+                }
+              }
+
+              // No barcode found in image
+              this.supportEl.textContent = 'No se detectó código en la imagen. Intenta otra o escribe manualmente.';
+              this.supportEl.classList.add('error');
+              setTimeout(() => {
+                this.enterImageUploadState(field);
+              }, 1500);
+            } catch (e) {
+              console.error('[Image scan]', e);
+              this.supportEl.textContent = 'Error al analizar la imagen.';
+              this.supportEl.classList.add('error');
+              setTimeout(() => {
+                this.enterImageUploadState(field);
+              }, 1500);
+            }
+          };
+          img.onerror = () => {
+            this.supportEl.textContent = 'No se pudo cargar la imagen.';
+            this.supportEl.classList.add('error');
+          };
+          img.src = e.target.result;
+        };
+        reader.onerror = () => {
+          this.supportEl.textContent = 'Error al leer el archivo.';
+          this.supportEl.classList.add('error');
+        };
+        reader.readAsDataURL(file);
+      } catch (e) {
+        console.error('[Upload image]', e);
+        this.supportEl.textContent = 'Error al procesar la imagen.';
+        this.supportEl.classList.add('error');
+      }
+    };
+
+    fileInput.addEventListener('change', () => {
+      const file = fileInput.files?.[0];
+      if (file) processImage(file);
+    });
+
+    const manualBtn = this.makeButton('Escribir manualmente', {
+      icon: 'keyboard',
+      onClick: () => this.enterManualState(field),
+    });
+    const cameraBtn = this.makeButton('Volver al scanner', {
+      primary: true,
+      icon: 'scan',
+      onClick: () => this.enterScanningState(field),
+    });
+    this.setActions([manualBtn, cameraBtn]);
+  }
+
+  mapZxingFormat(fmt) {
+    const F = window.ZXing.BarcodeFormat;
+    const names = {
+      [F.QR_CODE]: 'qr_code', [F.EAN_13]: 'ean_13', [F.EAN_8]: 'ean_8',
+      [F.UPC_A]: 'upc_a', [F.UPC_E]: 'upc_e', [F.CODE_128]: 'code_128',
+      [F.CODE_39]: 'code_39', [F.CODE_93]: 'code_93', [F.CODABAR]: 'codabar',
+      [F.ITF]: 'itf', [F.DATA_MATRIX]: 'data_matrix', [F.PDF_417]: 'pdf417',
+      [F.AZTEC]: 'aztec',
+    };
+    return names[fmt] || 'unknown';
   }
 
   maybeAddTorchButton() {
