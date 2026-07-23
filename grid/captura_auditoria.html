@@ -920,7 +920,10 @@ select.step-input {
   <!-- Navbar -->
   <nav class="navbar">
     <div class="navbar-inner">
-      <h1 class="navbar-title">Captura de Auditoría</h1>
+      <div style="display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0;">
+        <img id="navbar-logo" class="navbar-logo" alt="Logo" style="display: none;" />
+        <h1 class="navbar-title">Captura de Auditoría</h1>
+      </div>
       <div style="display: flex; gap: 8px; align-items: center;">
         <span class="status-badge" id="status-badge">0 pendientes</span>
         <div class="user-avatar" id="user-avatar" title=""></div>
@@ -2587,6 +2590,31 @@ class GridClient {
     }
   }
 
+  /**
+   * GET /documents/{id}/download no sirve el binario directo: devuelve
+   * metadata JSON con download_url (o agent_download_url), que hay que
+   * volver a fetchear para obtener el blob real.
+   */
+  async downloadDocumentAsObjectUrl(docId) {
+    try {
+      const metaRes = await this._fetchWithTimeout(`${this.baseUrl}/api/v1/documents/${docId}/download`, {
+        credentials: 'include',
+      });
+      if (!metaRes.ok) throw new Error(`${metaRes.status}`);
+      const meta = await metaRes.json();
+      const url = meta.download_url || meta.agent_download_url;
+      if (!url) throw new Error('No se encontró download_url en la respuesta');
+
+      const blobRes = await this._fetchWithTimeout(url, { credentials: 'include' });
+      if (!blobRes.ok) throw new Error(`${blobRes.status}`);
+      const blob = await blobRes.blob();
+      return URL.createObjectURL(blob);
+    } catch (e) {
+      console.warn(`downloadDocumentAsObjectUrl ${docId}:`, e);
+      return null;
+    }
+  }
+
   async uploadPublicDocument(blob, filename) {
     const fd = new FormData();
     fd.append('file', blob, filename);
@@ -2735,6 +2763,7 @@ class CapturaApp {
       this.userEmail = me?.email || 'unknown@mercadolibre.com.mx';
       DebugConsole.log(`Usuario: ${this.userEmail}`, 'info');
       this.renderUserAvatar();
+      this.loadHeaderLogo();
 
       await this.loadStatusCatalog();
       await this.loadOutboxFromStorage();
@@ -2743,6 +2772,20 @@ class CapturaApp {
     } catch (e) {
       DebugConsole.log(`Error al inicializar: ${e.message}`, 'error');
       this.renderError(e.message);
+    }
+  }
+
+  /**
+   * Mismo logo que usa el Consolidado (mismo doc ID de Grid), para que
+   * ambas apps de Auditorías SVC compartan marca en el navbar.
+   */
+  async loadHeaderLogo() {
+    const logoDocId = '01KTD4Q8GC7Y620F9F9WEXGDE4';
+    const objectUrl = await this.gridClient.downloadDocumentAsObjectUrl(logoDocId);
+    if (objectUrl) {
+      const img = document.getElementById('navbar-logo');
+      img.src = objectUrl;
+      img.style.display = '';
     }
   }
 
@@ -2993,7 +3036,7 @@ class CapturaApp {
         uid,
         ts,
         ...values,
-        auditoria: `${this.userEmail} - ${ts.split('T')[0]}`,
+        auditoria: this.userEmail,
       };
 
       // Store locally
