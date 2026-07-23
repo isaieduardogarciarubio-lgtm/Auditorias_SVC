@@ -1,0 +1,2390 @@
+<!doctype html>
+<html lang="es">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Captura de Auditoría — Grid</title>
+
+  <style>
+/* ==========================================================================
+   OLED Minimalist Progressive — UX/UI Design Guide v3.0
+   Dark minimalism, mobile-first, one question per screen flows.
+   ========================================================================== */
+
+@font-face {
+  font-family: 'Proxima Nova';
+  src: url('../data/proximanovaregular.otf') format('opentype');
+  font-weight: normal;
+  font-display: swap;
+}
+
+@font-face {
+  font-family: 'Proxima Nova';
+  src: url('../data/proximanovabold.otf') format('opentype');
+  font-weight: bold;
+  font-display: swap;
+}
+
+:root {
+  /* OLED True Dark Palette */
+  --color-bg: #000000;
+  --color-surface: #1c1c1e;
+  --color-surface-hover: #2c2c2e;
+  --color-surface-elevated: #2c2c2e;
+  --color-highlight: #3a3a3c;
+  --color-text-primary: #ffffff;
+  --color-text-muted: #8e8e93;
+  --color-error: #ff453a;
+  --color-border: #2c2c2e;
+
+  /* Shape */
+  --radius-pill: 9999px;
+  --radius-card: 20px;
+  --radius-popover: 16px;
+
+  /* Spacing */
+  --spacing-xs: 4px;
+  --spacing-sm: 8px;
+  --spacing-md: 16px;
+  --spacing-lg: 24px;
+  --spacing-xl: 32px;
+
+  /* Typography (26pt / 14pt) */
+  --font-h1: 1.75rem;
+  --font-body: 0.95rem;
+  --font-button: 0.95rem;
+}
+
+* {
+  margin: 0;
+  padding: 0;
+  box-sizing: border-box;
+}
+
+html {
+  font-size: 16px;
+}
+
+body {
+  font-family: 'Proxima Nova', -apple-system, BlinkMacSystemFont, 'Segoe UI',
+    'Roboto', 'Oxygen', 'Ubuntu', 'Cantarell', 'Fira Sans', 'Droid Sans',
+    'Helvetica Neue', sans-serif;
+  background: var(--color-bg);
+  color: var(--color-text-primary);
+  line-height: 1.5;
+  min-height: 100vh;
+}
+
+.icon {
+  display: inline-block;
+  vertical-align: middle;
+  flex-shrink: 0;
+}
+
+.icon-danger {
+  color: var(--color-error);
+}
+
+/* Layout */
+
+.app-container {
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+}
+
+.navbar {
+  position: sticky;
+  top: 0;
+  z-index: 100;
+  background: var(--color-bg);
+}
+
+.navbar-inner {
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--spacing-md) var(--spacing-lg);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  min-height: 32px;
+}
+
+.navbar-logo {
+  height: 28px;
+  width: auto;
+  flex-shrink: 0;
+}
+
+.navbar-title {
+  font-family: 'Proxima Nova', sans-serif;
+  font-size: 1rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.icon-btn-plain {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 40px;
+  height: 40px;
+  margin: -8px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-primary);
+  cursor: pointer;
+  transition: opacity 0.15s ease;
+}
+
+.icon-btn-plain:hover {
+  opacity: 0.7;
+}
+
+.icon-nav-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 44px;
+  height: 44px;
+  border-radius: var(--radius-pill);
+  border: 1px solid var(--color-border);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  cursor: pointer;
+  text-decoration: none;
+  transition: background 0.15s ease;
+}
+
+.icon-nav-btn:hover {
+  background: var(--color-surface-hover);
+}
+
+.content {
+  flex: 1;
+  width: 100%;
+  max-width: 640px;
+  margin: 0 auto;
+  padding: var(--spacing-lg);
+}
+
+@media (max-width: 768px) {
+  .navbar-inner {
+    padding: var(--spacing-sm) var(--spacing-md);
+  }
+
+  .content {
+    padding: var(--spacing-md);
+  }
+}
+
+/* Buttons */
+
+.btn {
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: none;
+  border-radius: var(--radius-pill);
+  font-size: var(--font-button);
+  font-weight: 600;
+  cursor: pointer;
+  transition: transform 0.15s ease, background 0.2s ease, opacity 0.2s ease;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  text-decoration: none;
+  line-height: 1;
+}
+
+.btn:disabled {
+  opacity: 0.4;
+  cursor: not-allowed;
+}
+
+.btn .icon {
+  flex-shrink: 0;
+}
+
+.btn-primary {
+  background: var(--color-text-primary);
+  color: #000000;
+}
+
+.btn-primary:hover:not(:disabled) {
+  opacity: 0.85;
+  transform: translateY(-1px);
+}
+
+.btn-secondary {
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+}
+
+.btn-secondary:hover:not(:disabled) {
+  background: var(--color-surface-hover);
+  transform: translateY(-1px);
+}
+
+.btn-sm {
+  padding: var(--spacing-xs) var(--spacing-md);
+  font-size: 0.82rem;
+}
+
+.btn-icon-only {
+  padding: var(--spacing-sm);
+  width: 38px;
+  height: 38px;
+}
+
+.btn-block {
+  width: 100%;
+}
+
+/* Form flow: one question per screen */
+
+.step-screen {
+  display: flex;
+  flex-direction: column;
+  min-height: calc(100vh - 160px);
+  padding-top: var(--spacing-lg);
+  padding-bottom: 120px;
+}
+
+.step-progress {
+  font-size: 0.8rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+  letter-spacing: 0.03em;
+  margin-bottom: var(--spacing-md);
+}
+
+.step-question {
+  font-size: var(--font-h1);
+  font-weight: 700;
+  color: var(--color-text-primary);
+  margin-bottom: var(--spacing-xl);
+}
+
+.step-input-wrap {
+  margin-bottom: var(--spacing-sm);
+}
+
+.step-input {
+  width: 100%;
+  border: none;
+  border-bottom: 2px solid var(--color-text-primary);
+  border-radius: 0;
+  background: transparent;
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-h1);
+  font-weight: 600;
+  padding: var(--spacing-sm) 0 var(--spacing-md);
+  transition: border-color 0.15s ease;
+}
+
+.step-input::placeholder {
+  color: var(--color-text-muted);
+  font-weight: 400;
+}
+
+.step-input:focus {
+  outline: none;
+  caret-color: var(--color-text-primary);
+}
+
+.step-input-wrap.error .step-input {
+  border-bottom-color: var(--color-error);
+}
+
+textarea.step-input {
+  resize: vertical;
+  min-height: 96px;
+}
+
+select.step-input {
+  appearance: none;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='24' height='24' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpath d='M6 9l6 6 6-6'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 4px center;
+  padding-right: var(--spacing-xl);
+}
+
+@keyframes shake {
+  0%, 100% { transform: translateX(0); }
+  20% { transform: translateX(-4px); }
+  40% { transform: translateX(4px); }
+  60% { transform: translateX(-4px); }
+  80% { transform: translateX(4px); }
+}
+
+.step-input-wrap.shake {
+  animation: shake 0.2s ease;
+}
+
+.step-support {
+  min-height: 1.2em;
+  font-size: var(--font-body);
+  color: var(--color-text-muted);
+}
+
+.step-support.error {
+  color: var(--color-error);
+  font-weight: 600;
+}
+
+.step-actions {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 90;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  gap: var(--spacing-md);
+  padding: var(--spacing-md) var(--spacing-lg) calc(var(--spacing-md) + env(safe-area-inset-bottom));
+  background: var(--color-bg);
+}
+
+.step-actions .btn-primary {
+  margin-left: auto;
+}
+
+/* Scanner */
+
+.scanner-body {
+  margin-top: var(--spacing-md);
+}
+
+.scanner-viewport {
+  position: relative;
+  width: 100%;
+  aspect-ratio: 3 / 4;
+  max-height: 60vh;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: #0a0a0a;
+}
+
+.scanner-video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+.scanner-frame {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  width: 66%;
+  aspect-ratio: 1 / 1;
+  border-radius: 16px;
+  box-shadow: 0 0 0 100vmax rgba(0, 0, 0, 0.45);
+  overflow: hidden;
+}
+
+.scanner-frame::before,
+.scanner-frame::after {
+  content: '';
+  position: absolute;
+  width: 28px;
+  height: 28px;
+  border: 3px solid #ffffff;
+}
+.scanner-frame::before {
+  top: 0;
+  left: 0;
+  border-right: none;
+  border-bottom: none;
+  border-top-left-radius: 12px;
+}
+.scanner-frame::after {
+  bottom: 0;
+  right: 0;
+  border-left: none;
+  border-top: none;
+  border-bottom-right-radius: 12px;
+}
+
+.scanner-line {
+  position: absolute;
+  left: 8%;
+  right: 8%;
+  height: 2px;
+  background: #ffffff;
+  box-shadow: 0 0 8px rgba(255, 255, 255, 0.8);
+  animation: scanline 2s ease-in-out infinite;
+}
+
+@keyframes scanline {
+  0%, 100% { top: 12%; }
+  50% { top: 88%; }
+}
+
+.scanner-torch {
+  position: absolute;
+  top: var(--spacing-md);
+  right: var(--spacing-md);
+  width: 44px;
+  height: 44px;
+  border: none;
+  border-radius: var(--radius-pill);
+  background: rgba(0, 0, 0, 0.5);
+  color: #ffffff;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  cursor: pointer;
+}
+
+.scanner-torch.active {
+  background: var(--color-text-primary);
+  color: #000000;
+}
+
+.scanner-result {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  text-align: center;
+  gap: var(--spacing-sm);
+  padding: var(--spacing-xl) var(--spacing-lg);
+  background: var(--color-surface);
+  border-radius: var(--radius-card);
+  min-height: 200px;
+  justify-content: center;
+}
+
+.scanner-result-badge {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 48px;
+  height: 48px;
+  border-radius: var(--radius-pill);
+  background: rgba(52, 199, 89, 0.16);
+  color: #34c759;
+  margin-bottom: var(--spacing-xs);
+}
+
+.scanner-result-label {
+  font-size: 0.85rem;
+  color: var(--color-text-muted);
+}
+
+.scanner-result-value {
+  font-size: 1.3rem;
+  font-weight: 700;
+  color: var(--color-text-primary);
+  word-break: break-all;
+}
+
+.scanner-result-format {
+  display: inline-flex;
+  padding: var(--spacing-xs) var(--spacing-md);
+  border-radius: var(--radius-pill);
+  background: var(--color-bg);
+  font-size: 0.72rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Picker (list selection) */
+
+.picker-search {
+  margin-bottom: var(--spacing-md);
+}
+
+.picker-list {
+  display: flex;
+  flex-direction: column;
+  background: var(--color-surface-elevated);
+  border-radius: var(--radius-popover);
+  overflow: hidden;
+  max-height: 55vh;
+  overflow-y: auto;
+}
+
+.picker-opt {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: var(--spacing-md);
+  width: 100%;
+  min-height: 52px;
+  padding: var(--spacing-md);
+  text-align: left;
+  background: transparent;
+  border: none;
+  border-bottom: 1px solid var(--color-highlight);
+  color: var(--color-text-primary);
+  font-size: var(--font-button);
+  font-weight: 600;
+  transition: background 0.1s ease;
+}
+
+.picker-opt:last-child {
+  border-bottom: none;
+}
+
+.picker-opt:hover,
+.picker-opt:active {
+  background: var(--color-highlight);
+}
+
+.picker-opt-meta {
+  font-size: 0.75rem;
+  font-weight: 500;
+  color: var(--color-text-muted);
+  flex-shrink: 0;
+}
+
+.picker-empty {
+  padding: var(--spacing-lg) var(--spacing-md);
+  color: var(--color-text-muted);
+  font-size: 0.85rem;
+  text-align: center;
+}
+
+/* Empty state */
+
+.empty-state {
+  text-align: center;
+  padding: var(--spacing-xl);
+  color: var(--color-text-muted);
+}
+
+.empty-state-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 64px;
+  height: 64px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  margin-bottom: var(--spacing-md);
+}
+
+/* Alerts & toasts */
+
+.alert {
+  padding: var(--spacing-sm) var(--spacing-lg) var(--spacing-sm) var(--spacing-sm);
+  border-radius: var(--radius-pill);
+  margin-bottom: var(--spacing-md);
+  display: flex;
+  align-items: center;
+  gap: var(--spacing-sm);
+  background: var(--color-surface);
+  font-size: 0.9rem;
+  font-weight: 500;
+}
+
+.alert-icon {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  flex-shrink: 0;
+}
+
+.alert-success {
+  color: var(--color-text-primary);
+}
+.alert-success .alert-icon {
+  background: rgba(52, 199, 89, 0.16);
+  color: #34c759;
+}
+
+.alert-error {
+  color: var(--color-text-primary);
+}
+.alert-error .alert-icon {
+  background: rgba(255, 69, 58, 0.16);
+  color: var(--color-error);
+}
+
+.alert-info {
+  color: var(--color-text-primary);
+}
+.alert-info .alert-icon {
+  background: rgba(10, 132, 255, 0.16);
+  color: #0a84ff;
+}
+
+/* Status badge */
+
+.status-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: var(--spacing-xs);
+  padding: var(--spacing-xs) var(--spacing-sm);
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  font-size: 0.78rem;
+  font-weight: 600;
+  color: var(--color-text-muted);
+}
+
+/* Photo field */
+
+.photo-body {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: var(--spacing-md) 0;
+}
+
+.photo-dropzone {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: var(--spacing-sm);
+  width: 100%;
+  min-height: 220px;
+  padding: var(--spacing-xl);
+  background: var(--color-surface);
+  color: var(--color-text-muted);
+  border: 2px dashed var(--color-highlight);
+  border-radius: var(--radius-card);
+  transition: background 0.12s ease, border-color 0.12s ease;
+}
+
+.photo-dropzone:hover,
+.photo-dropzone:active {
+  background: var(--color-surface-hover);
+  border-color: var(--color-text-muted);
+  color: var(--color-text-primary);
+}
+
+.photo-dropzone.is-dragover {
+  background: var(--color-surface-hover);
+  border-color: var(--color-text-primary);
+  color: var(--color-text-primary);
+}
+
+.photo-dropzone-label {
+  font-size: var(--font-button);
+  font-weight: 600;
+}
+
+.photo-preview {
+  position: relative;
+  width: 100%;
+  border-radius: var(--radius-card);
+  overflow: hidden;
+  background: var(--color-surface);
+}
+
+.photo-preview img {
+  display: block;
+  width: 100%;
+  max-height: 55vh;
+  object-fit: contain;
+  background: #000;
+}
+
+.photo-preview-badge {
+  position: absolute;
+  top: var(--spacing-sm);
+  right: var(--spacing-sm);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: rgba(52, 199, 89, 0.18);
+  color: #34c759;
+  backdrop-filter: blur(6px);
+}
+
+/* Utilities */
+
+.text-center {
+  text-align: center;
+}
+
+.text-muted {
+  color: var(--color-text-muted);
+}
+
+.hidden {
+  display: none !important;
+}
+
+.flex-row {
+  display: flex;
+  gap: var(--spacing-md);
+  flex-wrap: wrap;
+}
+
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+
+::-webkit-scrollbar-track {
+  background: transparent;
+}
+
+::-webkit-scrollbar-thumb {
+  background: var(--color-surface-hover);
+  border-radius: var(--radius-pill);
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-text-muted);
+}
+  </style>
+
+</head>
+<body>
+
+<div class="app-container">
+  <!-- Navbar -->
+  <nav class="navbar">
+    <div class="navbar-inner">
+      <h1 class="navbar-title">Captura de Auditoría</h1>
+      <div style="display: flex; gap: 8px; align-items: center;">
+        <span class="status-badge" id="status-badge">0 pendientes</span>
+        <button class="icon-btn-plain" id="menu-btn" title="Menú">
+          <svg class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
+            <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
+          </svg>
+        </button>
+      </div>
+    </div>
+  </nav>
+
+  <!-- Main content -->
+  <div class="content" id="app-root"></div>
+
+</div>
+
+<!-- Debug console (hidden by default) -->
+<div id="debug-console-panel" style="position: fixed; bottom: 20px; right: 20px; width: 300px; max-height: 400px; background: #1c1c1e; border: 1px solid #2c2c2e; border-radius: 12px; display: flex; flex-direction: column; z-index: 1000; transform: translateY(450px); transition: transform 0.3s ease;">
+  <div style="padding: 12px; border-bottom: 1px solid #2c2c2e; display: flex; justify-content: space-between; align-items: center;">
+    <span style="font-weight: 600; font-size: 0.85rem; color: #aab4bc;">Debug</span>
+    <button onclick="DebugConsole.toggle()" style="background: none; border: none; color: #aab4bc; cursor: pointer; padding: 4px; font-size: 0.9rem;">✕</button>
+  </div>
+  <div id="debug-console-body" style="flex: 1; overflow-y: auto; font-size: 0.75rem; font-family: monospace; padding: 8px; line-height: 1.3; color: #aab4bc;"></div>
+  <div style="padding: 8px; border-top: 1px solid #2c2c2e; display: flex; gap: 6px;">
+    <button onclick="DebugConsole.copyToClipboard()" style="flex: 1; padding: 6px; background: #2c2c2e; border: none; color: #aab4bc; border-radius: 6px; cursor: pointer; font-size: 0.75rem;">Copiar</button>
+    <button onclick="DebugConsole.toggle()" style="flex: 1; padding: 6px; background: #2c2c2e; border: none; color: #aab4bc; border-radius: 6px; cursor: pointer; font-size: 0.75rem;">Cerrar</button>
+  </div>
+</div>
+
+<div id="debug-console-badge" style="position: fixed; bottom: 20px; right: 20px; width: 32px; height: 32px; background: #ff453a; border-radius: 50%; display: flex; align-items: center; justify-content: center; color: white; font-weight: 700; font-size: 0.75rem; cursor: pointer; z-index: 999; display: none;" onclick="DebugConsole.toggle()"></div>
+
+<script>
+/**
+ * SVG Icons — line style, clean, Atlas/Andes-inspired iconography
+ * Stroke-based, no external dependencies, no emojis
+ */
+
+const Icons = (() => {
+  const PATHS = {
+    arrowRight: '<path d="M5 12h14"/><path d="M13 6l6 6-6 6"/>',
+    arrowLeft: '<path d="M19 12H5"/><path d="M11 18l-6-6 6-6"/>',
+    arrowDown: '<path d="M12 5v14"/><path d="M6 13l6 6 6-6"/>',
+    plus: '<path d="M12 5v14M5 12h14"/>',
+    check: '<path d="M5 12.5l4.5 4.5L19 7"/>',
+    close: '<path d="M6 6l12 12M18 6L6 18"/>',
+    grid: '<rect x="3" y="3" width="7" height="7" rx="1.5"/><rect x="14" y="3" width="7" height="7" rx="1.5"/><rect x="3" y="14" width="7" height="7" rx="1.5"/><rect x="14" y="14" width="7" height="7" rx="1.5"/>',
+    home: '<path d="M3 10v11a1 1 0 0 0 1 1h16a1 1 0 0 0 1-1V10"/><path d="M3 10l9-7 9 7"/><path d="M10 15h4v6h-4z"/>',
+    clipboard: '<rect x="6" y="4" width="12" height="17" rx="2"/><rect x="9" y="2" width="6" height="4" rx="1"/><path d="M9 11h6M9 15h6"/>',
+    star: '<path d="M12 3l2.6 5.6 6.1.6-4.6 4.1 1.3 6-5.4-3.2-5.4 3.2 1.3-6-4.6-4.1 6.1-.6z" stroke-linejoin="round"/>',
+    scan: '<path d="M4 8V6a2 2 0 0 1 2-2h2"/><path d="M16 4h2a2 2 0 0 1 2 2v2"/><path d="M20 16v2a2 2 0 0 1-2 2h-2"/><path d="M8 20H6a2 2 0 0 1-2-2v-2"/><path d="M4 12h16"/>',
+    qr: '<rect x="4" y="4" width="6" height="6" rx="1"/><rect x="14" y="4" width="6" height="6" rx="1"/><rect x="4" y="14" width="6" height="6" rx="1"/><path d="M14 14h3v3M20 14v.01M14 20h.01M17 20h3v-3"/>',
+    keyboard: '<rect x="2" y="6" width="20" height="12" rx="2"/><path d="M6 10h.01M10 10h.01M14 10h.01M18 10h.01M8 14h8"/>',
+    flash: '<path d="M13 2L4.5 12.5a.6.6 0 0 0 .5 1H11l-1 8.5L18.5 11.5a.6.6 0 0 0-.5-1H12z" stroke-linejoin="round"/>',
+    refresh: '<path d="M3 12a9 9 0 0 1 15.4-6.4L21 8"/><path d="M21 3v5h-5"/><path d="M21 12a9 9 0 0 1-15.4 6.4L3 16"/><path d="M3 21v-5h5"/>',
+    checkCircle: '<circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/>',
+    alertCircle: '<circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><circle cx="12" cy="16" r="0.75" fill="currentColor" stroke="none"/>',
+    infoCircle: '<circle cx="12" cy="12" r="9"/><path d="M12 11v5"/><circle cx="12" cy="8" r="0.75" fill="currentColor" stroke="none"/>',
+    inbox: '<path d="M4 12h4l1.5 3h5L16 12h4"/><path d="M6 5h12l2 7v6a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2v-6z"/>',
+    trash: '<path d="M19 6H5M8 6V4a1 1 0 0 1 1-1h6a1 1 0 0 1 1 1v2"/><rect x="6" y="6" width="12" height="12" rx="1"/><path d="M10 10v4M14 10v4"/>',
+    camera: '<path d="M4 8a2 2 0 0 1 2-2h1.5l1-2h5l1 2H18a2 2 0 0 1 2 2v9a2 2 0 0 1-2 2H6a2 2 0 0 1-2-2z"/><circle cx="12" cy="12.5" r="3.5"/>',
+    image: '<rect x="3" y="4" width="18" height="16" rx="2"/><circle cx="8.5" cy="9" r="1.5"/><path d="M21 15l-5-5-9 9"/>',
+  };
+
+  function svg(name, opts = {}) {
+    const path = PATHS[name];
+    if (!path) {
+      console.warn(`Icon "${name}" not found`);
+      return '';
+    }
+
+    const size = opts.size || 20;
+    const strokeWidth = opts.strokeWidth || 1.8;
+    const className = opts.className ? ` ${opts.className}` : '';
+
+    return `<svg class="icon${className}" width="${size}" height="${size}" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="${strokeWidth}" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true">${path}</svg>`;
+  }
+
+  return { svg };
+})();
+
+/**
+ * IndexedDB storage for captured records
+ */
+class RecordStore {
+  static DB_NAME = 'auditorias_svc_db';
+  static DB_VERSION = 1;
+  static STORE = 'records';
+  static _dbPromise = null;
+
+  static open() {
+    if (this._dbPromise) return this._dbPromise;
+    this._dbPromise = new Promise((resolve, reject) => {
+      const req = indexedDB.open(this.DB_NAME, this.DB_VERSION);
+      req.onupgradeneeded = () => {
+        const db = req.result;
+        if (!db.objectStoreNames.contains(this.STORE)) {
+          const store = db.createObjectStore(this.STORE, { keyPath: 'uid' });
+          store.createIndex('formId', 'formId', { unique: false });
+        }
+      };
+      req.onsuccess = () => resolve(req.result);
+      req.onerror = () => reject(req.error);
+    });
+    return this._dbPromise;
+  }
+
+  static genUid(formId) {
+    return `${formId}_${Date.now()}_${Math.random().toString(36).slice(2, 8)}`;
+  }
+
+  static async put(uid, formId, data) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.STORE, 'readwrite');
+      tx.objectStore(this.STORE).put({ uid, formId, data });
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  static async delete(uid) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.STORE, 'readwrite');
+      tx.objectStore(this.STORE).delete(uid);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  static async clearForm(formId) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.STORE, 'readwrite');
+      const idx = tx.objectStore(this.STORE).index('formId');
+      const cursorReq = idx.openCursor(IDBKeyRange.only(formId));
+      cursorReq.onsuccess = () => {
+        const cursor = cursorReq.result;
+        if (cursor) {
+          cursor.delete();
+          cursor.continue();
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  static async loadAll() {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.STORE, 'readonly');
+      const req = tx.objectStore(this.STORE).getAll();
+      req.onsuccess = () => {
+        const grouped = {};
+        (req.result || [])
+          .sort((a, b) => (a.uid < b.uid ? -1 : 1))
+          .forEach((row) => {
+            if (!grouped[row.formId]) grouped[row.formId] = [];
+            grouped[row.formId].push(row.data);
+          });
+        resolve(grouped);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+}
+
+/**
+ * Form configuration
+ */
+const FORMS_CONFIG = {
+  contenedor: {
+    id: 'contenedor',
+    title: 'Validación de Contenedor',
+    description: 'Escanea shipment y compara contra el catálogo de estatus',
+    icon: 'inbox',
+    requiresStatusCatalog: true,
+    fields: [
+      {
+        id: 'shipment',
+        label: '¿Cuál es el Shipment ID?',
+        type: 'scanner',
+        idType: 'shipment',
+        required: true,
+        placeholder: 'Ej. 47326091753',
+      },
+      {
+        id: 'resultado_lookup',
+        label: 'Resultado de la comparación',
+        type: 'estatus_lookup',
+        sourceField: 'shipment',
+        required: true,
+      },
+      {
+        id: 'evidencia',
+        label: 'Toma una foto de evidencia',
+        type: 'photo',
+        required: true,
+        showIf: (v) => v.resultado === 'No en contenedor',
+      },
+    ],
+    csvColumns: [
+      { field: 'ts', header: 'Fecha/Hora' },
+      { field: 'shipment', header: 'Shipment ID' },
+      { field: 'estatus', header: 'Estatus' },
+      { field: 'optimizada', header: 'Optimizada' },
+      { field: 'resultado', header: 'Resultado' },
+      { field: 'evidencia', header: 'Evidencia', type: 'photo' },
+    ],
+  },
+};
+
+/**
+ * Scan parser and validator
+ */
+const ScanParser = (() => {
+  const ID_PATTERN = /^[0-9]{6,20}$/;
+  const PLATE_PATTERN = /^[A-Za-z0-9-]{5,12}$/;
+
+  function extract(raw) {
+    const text = String(raw || '').trim();
+    if (!text) return null;
+
+    if (text[0] === '{') {
+      try {
+        const obj = JSON.parse(text);
+        if (obj && typeof obj === 'object') {
+          if (obj.legacy_id != null) return { value: String(obj.legacy_id).trim(), kind: 'hu' };
+          if (obj.id != null) return { value: String(obj.id).trim(), kind: 'shipment' };
+        }
+        return null;
+      } catch (e) {
+        return null;
+      }
+    }
+
+    return { value: text, kind: null };
+  }
+
+  function parse(raw, expectedType) {
+    const extracted = extract(raw);
+    if (extracted == null) return null;
+    const { value, kind } = extracted;
+
+    if (expectedType === 'plate') {
+      return PLATE_PATTERN.test(value) ? value.toUpperCase() : null;
+    }
+
+    if (!ID_PATTERN.test(value)) return null;
+    if (expectedType && kind && kind !== expectedType) return null;
+    return value;
+  }
+
+  return { parse, extract, ID_PATTERN, PLATE_PATTERN };
+})();
+
+/**
+ * Scanner engine — QR / barcode detection
+ * Uses native BarcodeDetector or falls back to ZXing
+ */
+class ScannerEngine {
+  constructor(opts = {}) {
+    this.formats = opts.formats || [
+      'qr_code', 'ean_13', 'ean_8', 'upc_a', 'upc_e', 'code_128',
+      'code_39', 'code_93', 'codabar', 'itf', 'data_matrix', 'pdf417', 'aztec',
+    ];
+    this.stream = null;
+    this.videoEl = null;
+    this.rafId = null;
+    this.running = false;
+    this.engine = null;
+    this.detector = null;
+    this.zxingReader = null;
+    this.track = null;
+  }
+
+  static isSupported() {
+    return typeof navigator !== 'undefined' && !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia;
+  }
+
+  async start(videoEl, onDetect) {
+    this.videoEl = videoEl;
+    this.onDetect = onDetect;
+
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false,
+    });
+
+    this.track = this.stream.getVideoTracks()[0];
+    videoEl.srcObject = this.stream;
+    videoEl.setAttribute('playsinline', 'true');
+    videoEl.muted = true;
+    await videoEl.play().catch(() => {});
+
+    this.running = true;
+
+    if ('BarcodeDetector' in window) {
+      await this.startNative();
+    } else if (window.ZXing) {
+      await this.startZxing();
+    } else {
+      throw new Error('No hay motor de escaneo disponible');
+    }
+  }
+
+  async startNative() {
+    this.engine = 'native';
+    let supported = [];
+    try {
+      supported = await window.BarcodeDetector.getSupportedFormats();
+    } catch (e) {
+      supported = [];
+    }
+    const formats = this.formats.filter((f) => supported.includes(f));
+    this.detector = new window.BarcodeDetector(formats.length ? { formats } : undefined);
+
+    const scan = async () => {
+      if (!this.running) return;
+      try {
+        const codes = await this.detector.detect(this.videoEl);
+        if (codes && codes.length) {
+          this.handleResult(codes[0].rawValue, codes[0].format);
+          return;
+        }
+      } catch (e) {}
+      this.rafId = requestAnimationFrame(scan);
+    };
+    this.rafId = requestAnimationFrame(scan);
+  }
+
+  async startZxing() {
+    this.engine = 'zxing';
+    this.zxingReader = new window.ZXing.BrowserMultiFormatReader();
+    this.zxingReader.decodeFromStream(this.stream, this.videoEl, (result, err) => {
+      if (!this.running) return;
+      if (result) {
+        this.handleResult(result.getText(), this.mapZxingFormat(result.getBarcodeFormat()));
+      }
+    });
+  }
+
+  mapZxingFormat(fmt) {
+    const F = window.ZXing.BarcodeFormat;
+    const names = {
+      [F.QR_CODE]: 'qr_code', [F.EAN_13]: 'ean_13', [F.EAN_8]: 'ean_8',
+      [F.UPC_A]: 'upc_a', [F.UPC_E]: 'upc_e', [F.CODE_128]: 'code_128',
+      [F.CODE_39]: 'code_39', [F.CODE_93]: 'code_93', [F.CODABAR]: 'codabar',
+      [F.ITF]: 'itf', [F.DATA_MATRIX]: 'data_matrix', [F.PDF_417]: 'pdf417',
+      [F.AZTEC]: 'aztec',
+    };
+    return names[fmt] || 'unknown';
+  }
+
+  handleResult(text, format) {
+    if (!text) return;
+    if (this.onDetect) this.onDetect(text, format);
+  }
+
+  pause() {
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    this.running = false;
+  }
+
+  resume() {
+    if (this.running) return;
+    this.running = true;
+    if (this.engine === 'native') {
+      this.startNative();
+    }
+  }
+
+  hasTorch() {
+    if (!this.track || !this.track.getCapabilities) return false;
+    const caps = this.track.getCapabilities();
+    return !!caps.torch;
+  }
+
+  async setTorch(on) {
+    if (!this.hasTorch()) return false;
+    try {
+      await this.track.applyConstraints({ advanced: [{ torch: !!on }] });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  stop() {
+    this.running = false;
+    if (this.rafId) {
+      cancelAnimationFrame(this.rafId);
+      this.rafId = null;
+    }
+    if (this.zxingReader) {
+      try {
+        this.zxingReader.reset();
+      } catch (e) {}
+      this.zxingReader = null;
+    }
+    if (this.stream) {
+      this.stream.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+    }
+    if (this.videoEl) {
+      this.videoEl.srcObject = null;
+    }
+    this.track = null;
+  }
+}
+
+/**
+ * FormEngine — Single-screen capture flow
+ * Renders one field at a time with conditional logic
+ */
+class FormEngine {
+  constructor(formConfig, { onComplete, onCancel, initialValues, autoAdvanceFields, catalogIndex } = {}) {
+    this.formConfig = formConfig;
+    this.onComplete = onComplete;
+    this.onCancel = onCancel;
+    this.initialValues = initialValues || {};
+    this.autoAdvanceFields = autoAdvanceFields || [];
+    this.catalogIndex = catalogIndex || {};
+    this.stepIndex = 0;
+    this.values = {};
+    this.container = null;
+    this.currentInput = null;
+    this.actionsEl = null;
+    this.errorTargetEl = null;
+    this.scanner = null;
+    this.handleViewportChange = this.repositionActions.bind(this);
+  }
+
+  get currentField() {
+    return this.formConfig.fields[this.stepIndex];
+  }
+
+  isFieldHidden(field) {
+    return !!(field && field.showIf && !field.showIf(this.values));
+  }
+
+  get isLastStep() {
+    for (let i = this.stepIndex + 1; i < this.formConfig.fields.length; i++) {
+      if (!this.isFieldHidden(this.formConfig.fields[i])) return false;
+    }
+    return true;
+  }
+
+  render(containerId) {
+    this.container = document.getElementById(containerId);
+    this.stepIndex = 0;
+    this.values = { ...this.initialValues };
+    this._autoAdvancePending = { ...this.initialValues };
+    this.bindViewportTracking();
+    this.renderStep();
+  }
+
+  bindViewportTracking() {
+    if (!window.visualViewport || this.viewportBound) return;
+    this.viewportBound = true;
+    window.visualViewport.addEventListener('resize', this.handleViewportChange);
+    window.visualViewport.addEventListener('scroll', this.handleViewportChange);
+  }
+
+  repositionActions() {
+    if (!this.actionsEl || !window.visualViewport) return;
+    const vv = window.visualViewport;
+    const keyboardInset = Math.max(0, window.innerHeight - vv.height - vv.offsetTop);
+    this.actionsEl.style.transform = keyboardInset > 0 ? `translateY(-${keyboardInset}px)` : '';
+  }
+
+  stopScanner() {
+    if (this.scanner) {
+      this.scanner.stop();
+      this.scanner = null;
+    }
+  }
+
+  destroy() {
+    this.stopScanner();
+    if (!window.visualViewport || !this.viewportBound) return;
+    window.visualViewport.removeEventListener('resize', this.handleViewportChange);
+    window.visualViewport.removeEventListener('scroll', this.handleViewportChange);
+    this.viewportBound = false;
+  }
+
+  renderStep() {
+    this.stopScanner();
+    const field = this.currentField;
+
+    if (this.autoAdvanceFields.includes(field.id) && this._autoAdvancePending[field.id] !== undefined) {
+      delete this._autoAdvancePending[field.id];
+      this.advance({ silent: true });
+      return;
+    }
+
+    if (this.isFieldHidden(field)) {
+      this.values[field.id] = field.valueWhenHidden ? field.valueWhenHidden(this.values) : '';
+      this.advance({ silent: true });
+      return;
+    }
+
+    if (field.type === 'scanner') {
+      this.renderScannerStep(field);
+      return;
+    }
+    if (field.type === 'estatus_lookup') {
+      this.renderEstatusLookupStep(field);
+      return;
+    }
+    if (field.type === 'photo') {
+      this.renderPhotoStep(field);
+      return;
+    }
+
+    this.container.innerHTML = '';
+    const screen = document.createElement('div');
+    screen.className = 'step-screen';
+    screen.appendChild(this.buildProgress());
+
+    const h1 = document.createElement('h1');
+    h1.className = 'step-question';
+    h1.textContent = field.label;
+    screen.appendChild(h1);
+
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'step-input-wrap';
+
+    const input = this.buildInput(field);
+    input.value = this.values[field.id] || '';
+    inputWrap.appendChild(input);
+    screen.appendChild(inputWrap);
+
+    const support = document.createElement('div');
+    support.className = 'step-support';
+    screen.appendChild(support);
+
+    this.container.appendChild(screen);
+
+    this.currentInput = input;
+    this.inputWrapEl = inputWrap;
+    this.errorTargetEl = inputWrap;
+    this.supportEl = support;
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter' && field.type !== 'textarea') {
+        e.preventDefault();
+        this.next();
+      }
+    });
+
+    input.addEventListener('input', () => this.clearError());
+
+    this.renderActions(field);
+
+    setTimeout(() => input.focus(), 60);
+  }
+
+  buildProgress() {
+    const fields = this.formConfig.fields;
+    const visible = fields.map((_, i) => i).filter((i) => !this.isFieldHidden(fields[i]));
+    const total = visible.length;
+    const pos = visible.indexOf(this.stepIndex) + 1;
+
+    const progress = document.createElement('div');
+    progress.className = 'step-progress';
+    progress.textContent = `${pos} / ${total}`;
+    return progress;
+  }
+
+  buildInput(field) {
+    let input;
+
+    if (field.type === 'select') {
+      input = document.createElement('select');
+      input.className = 'step-input';
+      field.options.forEach((option) => {
+        const optEl = document.createElement('option');
+        optEl.value = option.value;
+        optEl.textContent = option.label;
+        input.appendChild(optEl);
+      });
+    } else if (field.type === 'textarea') {
+      input = document.createElement('textarea');
+      input.className = 'step-input';
+      input.placeholder = field.placeholder || '';
+      input.rows = 3;
+    } else {
+      input = document.createElement('input');
+      input.type = field.type;
+      input.className = 'step-input';
+      input.placeholder = field.placeholder || '';
+      if (field.min !== undefined) input.min = field.min;
+      if (field.max !== undefined) input.max = field.max;
+    }
+
+    input.id = field.id;
+    input.name = field.id;
+    return input;
+  }
+
+  renderActions(field) {
+    const actions = document.createElement('div');
+    actions.className = 'step-actions';
+
+    if (!field.required) {
+      const skipBtn = document.createElement('button');
+      skipBtn.type = 'button';
+      skipBtn.className = 'btn btn-secondary';
+      skipBtn.textContent = 'Omitir';
+      skipBtn.addEventListener('click', () => this.skip());
+      actions.appendChild(skipBtn);
+    }
+
+    const nextBtn = document.createElement('button');
+    nextBtn.type = 'button';
+    nextBtn.className = 'btn btn-primary';
+    nextBtn.innerHTML = this.isLastStep
+      ? `<span>Agregar Registro</span>${Icons.svg('check', { size: 16 })}`
+      : `<span>Continuar</span>${Icons.svg('arrowRight', { size: 16 })}`;
+    nextBtn.addEventListener('click', () => this.next());
+
+    actions.appendChild(nextBtn);
+    this.container.appendChild(actions);
+    this.actionsEl = actions;
+    this.repositionActions();
+  }
+
+  setActions(children) {
+    const existing = this.container.querySelector('.step-actions');
+    if (existing) existing.remove();
+
+    const actions = document.createElement('div');
+    actions.className = 'step-actions';
+    children.forEach((c) => c && actions.appendChild(c));
+    this.container.appendChild(actions);
+    this.actionsEl = actions;
+    this.repositionActions();
+  }
+
+  makeButton(label, { primary, icon, iconAfter, onClick } = {}) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `btn ${primary ? 'btn-primary' : 'btn-secondary'}`;
+    const iconSvg = icon ? Icons.svg(icon, { size: 16 }) : '';
+    btn.innerHTML = iconAfter ? `<span>${label}</span>${iconSvg}` : `${iconSvg}<span>${label}</span>`;
+    if (onClick) btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  /* ====================================================================== */
+  /* Scanner field */
+  /* ====================================================================== */
+
+  renderScannerStep(field) {
+    this.container.innerHTML = '';
+
+    const screen = document.createElement('div');
+    screen.className = 'step-screen scanner-screen';
+
+    screen.appendChild(this.buildProgress());
+
+    const h1 = document.createElement('h1');
+    h1.className = 'step-question';
+    h1.textContent = field.label;
+    screen.appendChild(h1);
+
+    const body = document.createElement('div');
+    body.className = 'scanner-body';
+    screen.appendChild(body);
+
+    const support = document.createElement('div');
+    support.className = 'step-support';
+    screen.appendChild(support);
+
+    this.container.appendChild(screen);
+
+    this.scannerBody = body;
+    this.supportEl = support;
+
+    this.enterScanningState(field);
+  }
+
+  async enterScanningState(field) {
+    this.stopScanner();
+    this.supportEl.textContent = 'Apunta la cámara al código QR o de barras.';
+    this.supportEl.classList.remove('error');
+
+    this.scannerBody.innerHTML = `
+      <div class="scanner-viewport">
+        <video class="scanner-video" playsinline muted></video>
+        <div class="scanner-frame"><span class="scanner-line"></span></div>
+      </div>
+    `;
+
+    const manualBtn = this.makeButton('Escribir manualmente', {
+      icon: 'keyboard',
+      onClick: () => this.enterManualState(field),
+    });
+    this.setActions([manualBtn]);
+
+    if (!ScannerEngine.isSupported()) {
+      this.enterManualState(field, 'Tu navegador no permite usar la cámara. Escribe el código manualmente.');
+      return;
+    }
+
+    const video = this.scannerBody.querySelector('.scanner-video');
+    this.scanner = new ScannerEngine();
+
+    try {
+      await this.scanner.start(video, (text, format) => {
+        this.onScanDetected(field, text, format);
+      });
+      this.maybeAddTorchButton();
+    } catch (err) {
+      const msg =
+        err && err.name === 'NotAllowedError'
+          ? 'Permiso de cámara denegado. Escribe el código manualmente.'
+          : 'No se pudo abrir la cámara. Escribe el código manualmente.';
+      this.enterManualState(field, msg);
+    }
+  }
+
+  maybeAddTorchButton() {
+    if (!this.scanner || !this.scanner.hasTorch()) return;
+    const viewport = this.scannerBody.querySelector('.scanner-viewport');
+    if (!viewport) return;
+    const torchBtn = document.createElement('button');
+    torchBtn.type = 'button';
+    torchBtn.className = 'scanner-torch';
+    torchBtn.setAttribute('aria-label', 'Linterna');
+    torchBtn.innerHTML = Icons.svg('flash', { size: 20 });
+    let on = false;
+    torchBtn.addEventListener('click', async () => {
+      on = !on;
+      const ok = await this.scanner.setTorch(on);
+      torchBtn.classList.toggle('active', ok && on);
+    });
+    viewport.appendChild(torchBtn);
+  }
+
+  onScanDetected(field, text, format) {
+    if (this.scanner) this.scanner.pause();
+
+    const parsed = ScanParser.parse(text, field.idType);
+    if (!parsed) {
+      this.vibrate(40);
+      this.enterScanRejected(field);
+      return;
+    }
+
+    this.vibrate(60);
+    this.enterDetectedState(field, parsed, format);
+  }
+
+  idTypeLabel(field) {
+    const labels = { hu: 'HU', shipment: 'Shipment ID', plate: 'Patente' };
+    return labels[field.idType] || 'código';
+  }
+
+  enterScanRejected(field) {
+    this.supportEl.textContent = `Código no reconocido. Verifica que sea el ${this.idTypeLabel(field)} correcto.`;
+    this.supportEl.classList.add('error');
+    setTimeout(() => {
+      if (!this.scanner) return;
+      this.supportEl.classList.remove('error');
+      this.supportEl.textContent = 'Apunta la cámara al código QR o de barras.';
+      this.scanner.resume();
+    }, 1000);
+  }
+
+  enterDetectedState(field, text, format) {
+    this.supportEl.textContent = '';
+    this.supportEl.classList.remove('error');
+
+    this.scannerBody.innerHTML = `
+      <div class="scanner-result">
+        <div class="scanner-result-badge">${Icons.svg('checkCircle', { size: 22 })}</div>
+        <div class="scanner-result-label">Código detectado</div>
+        <div class="scanner-result-value"></div>
+        ${format ? `<div class="scanner-result-format">${this.formatLabel(format)}</div>` : ''}
+      </div>
+    `;
+    this.scannerBody.querySelector('.scanner-result-value').textContent = text;
+
+    const retryBtn = this.makeButton('Reintentar', {
+      icon: 'refresh',
+      onClick: () => this.enterScanningState(field),
+    });
+    const confirmBtn = this.makeButton(this.isLastStep ? 'Agregar Registro' : 'Confirmar', {
+      primary: true,
+      icon: this.isLastStep ? 'check' : 'arrowRight',
+      iconAfter: true,
+      onClick: () => {
+        this.values[field.id] = text;
+        this.stopScanner();
+        this.advance();
+      },
+    });
+    this.setActions([retryBtn, confirmBtn]);
+  }
+
+  enterManualState(field, note) {
+    this.stopScanner();
+    this.supportEl.textContent = note || '';
+    this.supportEl.classList.toggle('error', !!note);
+
+    this.scannerBody.innerHTML = '';
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'step-input-wrap';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'step-input';
+    input.placeholder = field.placeholder || 'Escribe el código';
+    input.value = this.values[field.id] || '';
+    inputWrap.appendChild(input);
+    this.scannerBody.appendChild(inputWrap);
+
+    this.currentInput = input;
+    this.inputWrapEl = inputWrap;
+    this.errorTargetEl = inputWrap;
+
+    input.addEventListener('input', () => this.clearError());
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        this.confirmManual(field);
+      }
+    });
+
+    const cameraBtn = this.makeButton('Usar cámara', {
+      icon: 'scan',
+      onClick: () => this.enterScanningState(field),
+    });
+    const nextBtn = this.makeButton(this.isLastStep ? 'Agregar Registro' : 'Continuar', {
+      primary: true,
+      icon: this.isLastStep ? 'check' : 'arrowRight',
+      iconAfter: true,
+      onClick: () => this.confirmManual(field),
+    });
+    this.setActions([cameraBtn, nextBtn]);
+
+    setTimeout(() => input.focus(), 60);
+  }
+
+  confirmManual(field) {
+    const raw = this.currentInput.value.trim();
+
+    if (field.required && !raw) {
+      this.showError('Este campo es obligatorio.');
+      return;
+    }
+
+    if (!raw) {
+      this.values[field.id] = '';
+      this.stopScanner();
+      this.advance();
+      return;
+    }
+
+    const parsed = ScanParser.parse(raw, field.idType);
+    if (!parsed) {
+      const messages = {
+        hu: 'Formato inválido. Debe ser el HU (solo dígitos).',
+        shipment: 'Formato inválido. Debe ser el Shipment ID (solo dígitos).',
+        plate: 'Formato inválido. Debe ser una patente válida.',
+      };
+      this.showError(messages[field.idType] || 'Formato inválido.');
+      return;
+    }
+
+    this.values[field.id] = parsed;
+    this.stopScanner();
+    this.advance();
+  }
+
+  formatLabel(format) {
+    const labels = {
+      qr_code: 'QR', ean_13: 'EAN-13', ean_8: 'EAN-8', upc_a: 'UPC-A', upc_e: 'UPC-E',
+      code_128: 'Code 128', code_39: 'Code 39', code_93: 'Code 93', codabar: 'Codabar',
+      itf: 'ITF', data_matrix: 'Data Matrix', pdf417: 'PDF417', aztec: 'Aztec',
+    };
+    return labels[format] || format;
+  }
+
+  /* ====================================================================== */
+  /* Estatus lookup field */
+  /* ====================================================================== */
+
+  renderEstatusLookupStep(field) {
+    const sourceValue = this.values[field.sourceField];
+    const entry = (this.catalogIndex || {})[sourceValue];
+
+    this.container.innerHTML = '';
+
+    const screen = document.createElement('div');
+    screen.className = 'step-screen scanner-screen';
+
+    screen.appendChild(this.buildProgress());
+
+    const h1 = document.createElement('h1');
+    h1.className = 'step-question';
+    h1.textContent = field.label;
+    screen.appendChild(h1);
+
+    const body = document.createElement('div');
+    body.className = 'scanner-body';
+    screen.appendChild(body);
+
+    const support = document.createElement('div');
+    support.className = 'step-support';
+    screen.appendChild(support);
+
+    this.container.appendChild(screen);
+    this.errorTargetEl = body;
+    this.supportEl = support;
+
+    if (!entry) {
+      body.innerHTML = `
+        <div class="empty-state">
+          <div class="empty-state-icon">${Icons.svg('alertCircle', { size: 28 })}</div>
+          <p>Shipment no encontrado en el catálogo de estatus.</p>
+        </div>
+      `;
+      const retryBtn = this.makeButton('Reintentar Shipment', {
+        icon: 'refresh',
+        onClick: () => {
+          delete this.values[field.sourceField];
+          delete this.values.estatus;
+          delete this.values.optimizada;
+          delete this.values.resultado;
+          this.back();
+        },
+      });
+      this.setActions([retryBtn]);
+      return;
+    }
+
+    const isInContainer = String(entry.estatus || '').trim().toLowerCase() === 'in_container';
+    const resultado = isInContainer ? 'En contenedor' : 'No en contenedor';
+    this.values.estatus = entry.estatus;
+    this.values.optimizada = entry.optimizada;
+    this.values.resultado = resultado;
+
+    body.innerHTML = `
+      <div class="scanner-result">
+        <div class="scanner-result-badge">${Icons.svg(isInContainer ? 'checkCircle' : 'alertCircle', { size: 22 })}</div>
+        <div class="scanner-result-label">${resultado}</div>
+        <div class="scanner-result-value">Estatus: ${entry.estatus}</div>
+        <div class="scanner-result-format">Optimizada: ${entry.optimizada || '—'}</div>
+      </div>
+    `;
+
+    const nextBtn = this.makeButton(this.isLastStep ? 'Agregar Registro' : 'Continuar', {
+      primary: true,
+      icon: this.isLastStep ? 'check' : 'arrowRight',
+      iconAfter: true,
+      onClick: () => this.advance(),
+    });
+    this.setActions([nextBtn]);
+  }
+
+  /* ====================================================================== */
+  /* Photo field */
+  /* ====================================================================== */
+
+  renderPhotoStep(field) {
+    this.container.innerHTML = '';
+
+    const screen = document.createElement('div');
+    screen.className = 'step-screen photo-screen';
+
+    screen.appendChild(this.buildProgress());
+
+    const h1 = document.createElement('h1');
+    h1.className = 'step-question';
+    h1.textContent = field.label;
+    screen.appendChild(h1);
+
+    const body = document.createElement('div');
+    body.className = 'photo-body';
+    screen.appendChild(body);
+
+    const support = document.createElement('div');
+    support.className = 'step-support';
+    screen.appendChild(support);
+
+    this.container.appendChild(screen);
+
+    this.photoBody = body;
+    this.supportEl = support;
+    this.errorTargetEl = body;
+
+    if (this.values[field.id]) {
+      this.enterPhotoPreview(field);
+    } else {
+      this.enterPhotoCapture(field);
+    }
+  }
+
+  enterPhotoCapture(field, note) {
+    this.supportEl.textContent = note || 'Toma una foto con la cámara del dispositivo.';
+    this.supportEl.classList.toggle('error', !!note);
+
+    this.photoBody.innerHTML = `
+      <button type="button" class="photo-dropzone">
+        <span>${Icons.svg('camera', { size: 30 })}</span>
+        <span class="photo-dropzone-label">Tomar foto</span>
+      </button>
+      <input type="file" accept="image/*" capture="environment" class="photo-input" hidden />
+      <input type="file" accept="image/*" class="photo-input-gallery" hidden />
+    `;
+
+    const dropzone = this.photoBody.querySelector('.photo-dropzone');
+    const cameraInput = this.photoBody.querySelector('.photo-input');
+    const galleryInput = this.photoBody.querySelector('.photo-input-gallery');
+
+    dropzone.addEventListener('click', () => cameraInput.click());
+
+    const onFile = async (input) => {
+      const file = input.files && input.files[0];
+      if (!file) return;
+      this.supportEl.textContent = 'Procesando imagen...';
+      this.supportEl.classList.remove('error');
+      try {
+        this.values[field.id] = await this.compressImage(file, { maxDim: 1280, quality: 0.6 });
+        this.vibrate(30);
+        this.enterPhotoPreview(field);
+      } catch (e) {
+        this.enterPhotoCapture(field, 'No se pudo procesar la imagen. Intenta de nuevo.');
+      }
+    };
+    cameraInput.addEventListener('change', () => onFile(cameraInput));
+    galleryInput.addEventListener('change', () => onFile(galleryInput));
+
+    const galleryBtn = this.makeButton('Elegir de galería', {
+      icon: 'image',
+      onClick: () => galleryInput.click(),
+    });
+    const buttons = [galleryBtn];
+    if (!field.required) {
+      buttons.unshift(this.makeButton('Omitir', { onClick: () => this.skip() }));
+    }
+    this.setActions(buttons);
+  }
+
+  enterPhotoPreview(field) {
+    this.supportEl.textContent = '';
+    this.supportEl.classList.remove('error');
+
+    this.photoBody.innerHTML = `
+      <div class="photo-preview">
+        <img alt="Foto capturada" />
+        <div class="photo-preview-badge">${Icons.svg('checkCircle', { size: 20 })}</div>
+      </div>
+    `;
+    this.photoBody.querySelector('img').src = this.values[field.id];
+
+    const retakeBtn = this.makeButton('Retomar', {
+      icon: 'refresh',
+      onClick: () => {
+        delete this.values[field.id];
+        this.enterPhotoCapture(field);
+      },
+    });
+    const nextBtn = this.makeButton(this.isLastStep ? 'Agregar Registro' : 'Continuar', {
+      primary: true,
+      icon: this.isLastStep ? 'check' : 'arrowRight',
+      iconAfter: true,
+      onClick: () => this.advance(),
+    });
+    this.setActions([retakeBtn, nextBtn]);
+  }
+
+  compressImage(file, { maxDim = 1280, quality = 0.6 } = {}) {
+    return new Promise((resolve, reject) => {
+      const url = URL.createObjectURL(file);
+      const img = new Image();
+      img.onload = () => {
+        URL.revokeObjectURL(url);
+        let { width, height } = img;
+        if (width > maxDim || height > maxDim) {
+          const scale = maxDim / Math.max(width, height);
+          width = Math.round(width * scale);
+          height = Math.round(height * scale);
+        }
+        const canvas = document.createElement('canvas');
+        canvas.width = width;
+        canvas.height = height;
+        const ctx = canvas.getContext('2d');
+        ctx.drawImage(img, 0, 0, width, height);
+        try {
+          const webp = canvas.toDataURL('image/webp', quality);
+          resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', quality));
+        } catch (e) {
+          reject(e);
+        }
+      };
+      img.onerror = () => {
+        URL.revokeObjectURL(url);
+        reject(new Error('No se pudo cargar la imagen'));
+      };
+      img.src = url;
+    });
+  }
+
+  /* ====================================================================== */
+
+  readCurrentValue() {
+    return this.currentInput ? this.currentInput.value.trim() : '';
+  }
+
+  vibrate(pattern) {
+    if (navigator.vibrate) {
+      try {
+        navigator.vibrate(pattern);
+      } catch (e) {}
+    }
+  }
+
+  showError(message) {
+    this.vibrate(20);
+
+    if (!this.errorTargetEl) return;
+    this.errorTargetEl.classList.add('error');
+    this.supportEl.textContent = message;
+    this.supportEl.classList.add('error');
+
+    this.errorTargetEl.classList.remove('shake');
+    void this.errorTargetEl.offsetWidth;
+    this.errorTargetEl.classList.add('shake');
+  }
+
+  clearError() {
+    if (this.errorTargetEl) this.errorTargetEl.classList.remove('error');
+    if (this.supportEl) {
+      this.supportEl.textContent = '';
+      this.supportEl.classList.remove('error');
+    }
+  }
+
+  next() {
+    const field = this.currentField;
+    const value = this.readCurrentValue();
+
+    if (field.required && !value) {
+      this.showError('Este campo es obligatorio.');
+      return;
+    }
+
+    this.values[field.id] = value;
+    this.advance();
+  }
+
+  skip() {
+    this.values[this.currentField.id] = '';
+    this.advance();
+  }
+
+  advance({ silent } = {}) {
+    if (!silent) this.vibrate(10);
+    if (this.isLastStep) {
+      this.finish();
+    } else {
+      this.stepIndex++;
+      this.renderStep();
+    }
+  }
+
+  back() {
+    this.stopScanner();
+    let idx = this.stepIndex - 1;
+    while (idx >= 0 && this.isFieldHidden(this.formConfig.fields[idx])) idx--;
+    if (idx < 0) {
+      if (this.onCancel) this.onCancel();
+      return;
+    }
+    this.stepIndex = idx;
+    this.renderStep();
+  }
+
+  finish() {
+    this.stopScanner();
+    this.formConfig.fields.forEach((f) => {
+      if (this.values[f.id] === undefined) {
+        this.values[f.id] = this.isFieldHidden(f) && f.valueWhenHidden ? f.valueWhenHidden(this.values) : '';
+      }
+    });
+    if (this.onComplete) this.onComplete({ ...this.values });
+  }
+}
+
+/**
+ * Debug console — log events to an on-screen panel
+ */
+class DebugConsole {
+  static entries = [];
+  static maxEntries = 300;
+
+  static log(message, level = 'info') {
+    const ts = new Date().toISOString().split('T')[1].slice(0, 8);
+    this.entries.push({ ts, level, message: String(message) });
+    if (this.entries.length > this.maxEntries) this.entries.shift();
+    this.render();
+    if (level === 'error') console.error(message);
+    else if (level === 'warn') console.warn(message);
+    else console.log(message);
+  }
+
+  static escapeHtml(s) {
+    const div = document.createElement('div');
+    div.textContent = s;
+    return div.innerHTML;
+  }
+
+  static render() {
+    const el = document.getElementById('debug-console-body');
+    if (!el) return;
+    const colors = { error: '#FF5C6C', warn: '#FFD100', info: '#AAB4BC' };
+    el.innerHTML = this.entries.map(e =>
+      `<div style="color:${colors[e.level] || colors.info};">[${e.ts}] ${this.escapeHtml(e.message)}</div>`
+    ).join('');
+    el.scrollTop = el.scrollHeight;
+    const badge = document.getElementById('debug-console-badge');
+    if (badge) {
+      const errorCount = this.entries.filter(e => e.level === 'error').length;
+      badge.style.display = errorCount > 0 ? 'flex' : 'none';
+      badge.textContent = errorCount > 9 ? '9+' : String(errorCount);
+    }
+  }
+
+  static toggle() {
+    const panel = document.getElementById('debug-console-panel');
+    panel.classList.toggle('open');
+    const isOpen = panel.classList.contains('open');
+    panel.style.transform = isOpen ? 'translateY(0)' : 'translateY(450px)';
+  }
+
+  static copyToClipboard() {
+    const text = this.entries.map(e => `[${e.ts}] [${e.level}] ${e.message}`).join('\n');
+    navigator.clipboard.writeText(text).then(() => {
+      this.log('Log copiado al portapapeles', 'info');
+    }).catch(() => {
+      this.log('No se pudo copiar automáticamente — selecciona el texto manualmente', 'warn');
+    });
+  }
+
+  static setup() {
+    window.addEventListener('error', (e) => {
+      this.log(`Error no capturado: ${e.message} (${e.filename}:${e.lineno})`, 'error');
+    });
+    window.addEventListener('unhandledrejection', (e) => {
+      const reason = e.reason && e.reason.message ? e.reason.message : String(e.reason);
+      this.log(`Promesa rechazada sin capturar: ${reason}`, 'error');
+    });
+    this.log('Consola de depuración iniciada', 'info');
+  }
+}
+
+/**
+ * GridClient — interact with Grid API for state buckets and document uploads
+ */
+class GridClient {
+  constructor(docId) {
+    this.docId = docId;
+    this.baseUrl = location.origin;
+    this._updatedAtByName = {};
+  }
+
+  async getMe() {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/me`, { credentials: 'include' });
+      if (!res.ok) throw new Error(`${res.status}`);
+      return await res.json();
+    } catch (e) {
+      console.warn('Could not fetch /me:', e);
+      return null;
+    }
+  }
+
+  async uploadPublicDocument(blob, filename) {
+    const fd = new FormData();
+    fd.append('file', blob, filename);
+    fd.append('title', filename);
+    fd.append('description', 'Foto de auditoría (captura)');
+    fd.append('visibility', 'public');
+
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 30000);
+
+    let res;
+    try {
+      res = await fetch(`${this.baseUrl}/api/v1/documents`, {
+        method: 'POST',
+        credentials: 'include',
+        body: fd,
+        signal: controller.signal,
+      });
+    } catch (e) {
+      if (e.name === 'AbortError') throw new Error('Tiempo de espera agotado (30s) subiendo la foto');
+      throw e;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}));
+      throw new Error(err.error || err.message || `HTTP ${res.status}`);
+    }
+    const body = await res.json();
+    return body.id || body.doc_id || (body.document && body.document.id) || null;
+  }
+
+  async getStateBucket(name) {
+    try {
+      const res = await fetch(`${this.baseUrl}/api/v1/documents/${this.docId}/states/${name}`, {
+        credentials: 'include',
+      });
+      if (res.status === 404) return null;
+      if (!res.ok) throw new Error(`${res.status}`);
+      const body = await res.json();
+      this._updatedAtByName[name] = body.updated_at || '';
+      return body.state ?? null;
+    } catch (e) {
+      console.error(`getStateBucket ${name}:`, e);
+      return null;
+    }
+  }
+
+  async setStateBucket(name, data) {
+    try {
+      const ifUpdatedAt = this._updatedAtByName[name] || '';
+      const res = await fetch(`${this.baseUrl}/api/v1/documents/${this.docId}/states/${name}`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ state: data, if_updated_at: ifUpdatedAt }),
+        credentials: 'include',
+      });
+
+      if (res.status === 409) {
+        const conflictBody = await res.json().catch(() => ({}));
+        if (conflictBody.current_updated_at) {
+          this._updatedAtByName[name] = conflictBody.current_updated_at;
+        }
+        console.warn('Conflict on state bucket update — retrying');
+        return { conflict: true };
+      }
+      if (!res.ok) throw new Error(`${res.status}`);
+      const body = await res.json();
+      this._updatedAtByName[name] = body.updated_at || '';
+      return { ok: true };
+    } catch (e) {
+      console.error(`setStateBucket ${name}:`, e);
+      return null;
+    }
+  }
+}
+
+/**
+ * Main application controller
+ */
+class CapturaApp {
+  constructor() {
+    this.docId = new URLSearchParams(location.search).get('data_doc_id') || '01KXHHVWD581MQ567XEBW8HM5B';
+    this.gridClient = new GridClient(this.docId);
+    this.statusCatalogIndex = {};
+    this.outboxRecords = [];
+    this.currentEngine = null;
+    this.userEmail = null;
+    this.pendingCount = 0;
+
+    DebugConsole.setup();
+    DebugConsole.log(`Documento: ${this.docId}`, 'info');
+  }
+
+  async init() {
+    try {
+      const me = await this.gridClient.getMe();
+      this.userEmail = me?.email || 'unknown@mercadolibre.com.mx';
+      DebugConsole.log(`Usuario: ${this.userEmail}`, 'info');
+
+      await this.loadStatusCatalog();
+      await this.loadOutboxFromStorage();
+
+      this.renderMenu();
+    } catch (e) {
+      DebugConsole.log(`Error al inicializar: ${e.message}`, 'error');
+      this.renderError(e.message);
+    }
+  }
+
+  async loadStatusCatalog() {
+    try {
+      DebugConsole.log('Cargando catálogo de estatus...', 'info');
+      const catalog = await this.gridClient.getStateBucket('catalogo_estatus');
+
+      if (!catalog || typeof catalog !== 'object') {
+        DebugConsole.log('Catálogo vacío o inválido', 'warn');
+        this.statusCatalogIndex = {};
+        return;
+      }
+
+      this.statusCatalogIndex = catalog;
+      const count = Object.keys(catalog).length;
+      DebugConsole.log(`Catálogo cargado: ${count} shipments`, 'info');
+    } catch (e) {
+      DebugConsole.log(`Error al cargar catálogo: ${e.message}`, 'error');
+      this.statusCatalogIndex = {};
+    }
+  }
+
+  async loadOutboxFromStorage() {
+    try {
+      const all = await RecordStore.loadAll();
+      this.outboxRecords = all.contenedor || [];
+      this.updatePendingBadge();
+      DebugConsole.log(`Registros pendientes: ${this.outboxRecords.length}`, 'info');
+    } catch (e) {
+      DebugConsole.log(`Error al cargar registros: ${e.message}`, 'error');
+    }
+  }
+
+  updatePendingBadge() {
+    const badge = document.getElementById('status-badge');
+    if (badge) {
+      badge.textContent = `${this.outboxRecords.length} pendientes`;
+    }
+  }
+
+  renderMenu() {
+    const root = document.getElementById('app-root');
+    root.innerHTML = `
+      <div style="padding-bottom: 20px;">
+        <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 16px;">Auditorías Disponibles</h2>
+
+        <div onclick="window.app.startForm('contenedor')" style="background: var(--color-surface); border-radius: var(--radius-card); padding: 20px; cursor: pointer; margin-bottom: 12px; transition: all 0.15s ease;">
+          <div style="display: flex; align-items: center; gap: 16px;">
+            <div style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--radius-pill); background: var(--color-bg); color: var(--color-text-primary); flex-shrink: 0;">
+              ${Icons.svg('inbox', { size: 20 })}
+            </div>
+            <div style="flex: 1;">
+              <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 4px;">Validación de Contenedor</h3>
+              <p style="font-size: 0.88rem; color: var(--color-text-muted);">Escanea shipment y compara contra el catálogo de estatus</p>
+            </div>
+            <div style="color: var(--color-text-muted); flex-shrink: 0;">
+              ${Icons.svg('arrowRight', { size: 20 })}
+            </div>
+          </div>
+        </div>
+
+        ${this.outboxRecords.length > 0 ? `
+          <div style="margin-top: 32px;">
+            <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 12px;">Registros Pendientes (${this.outboxRecords.length})</h3>
+            <button onclick="window.app.flushOutbox()" class="btn btn-primary" style="width: 100%;">
+              ${Icons.svg('refresh', { size: 16 })} <span>Sincronizar Ahora</span>
+            </button>
+          </div>
+        ` : ''}
+      </div>
+    `;
+  }
+
+  startForm(formId) {
+    const formConfig = FORMS_CONFIG[formId];
+    if (!formConfig) {
+      DebugConsole.log(`Formulario no encontrado: ${formId}`, 'error');
+      return;
+    }
+
+    const root = document.getElementById('app-root');
+    root.innerHTML = '<div id="form-container"></div>';
+
+    this.currentEngine = new FormEngine(formConfig, {
+      catalogIndex: this.statusCatalogIndex,
+      onComplete: (values) => this.onFormComplete(formId, values),
+      onCancel: () => this.renderMenu(),
+    });
+
+    this.currentEngine.render('form-container');
+  }
+
+  async onFormComplete(formId, values) {
+    try {
+      DebugConsole.log('Procesando registro...', 'info');
+
+      const ts = new Date().toISOString();
+      const uid = RecordStore.genUid(formId);
+
+      const record = {
+        uid,
+        ts,
+        ...values,
+        auditoria: `${this.userEmail} - ${ts.split('T')[0]}`,
+      };
+
+      // Store locally
+      await RecordStore.put(uid, formId, record);
+      this.outboxRecords.push(record);
+      this.updatePendingBadge();
+
+      DebugConsole.log(`Registro guardado localmente (${uid})`, 'info');
+
+      // Try to sync immediately if online
+      if (navigator.onLine) {
+        await this.flushOutbox();
+      } else {
+        this.showToast('Guardado local — se sincronizará al reconectar', 'info');
+      }
+
+      this.renderMenu();
+    } catch (e) {
+      DebugConsole.log(`Error al guardar: ${e.message}`, 'error');
+      this.showToast('Error al guardar el registro', 'error');
+    }
+  }
+
+  async flushOutbox() {
+    if (this.outboxRecords.length === 0) {
+      this.showToast('No hay registros pendientes', 'info');
+      return;
+    }
+
+    if (!navigator.onLine) {
+      this.showToast('Sin conexión — intenta de nuevo cuando te conectes', 'warn');
+      return;
+    }
+
+    try {
+      DebugConsole.log('Sincronizando registros...', 'info');
+
+      const synced = [];
+      for (const record of this.outboxRecords) {
+        try {
+          // Upload photo if present
+          if (record.evidencia && record.evidencia.startsWith('data:')) {
+            const blob = await this.dataUrlToBlob(record.evidencia);
+            const docId = await this.gridClient.uploadPublicDocument(blob, `evidencia_${record.uid}.jpg`);
+            record.evidencia = docId;
+          }
+
+          // Write to state bucket
+          const bucket = await this.gridClient.getStateBucket('contenedor_master') || { records: [] };
+          if (!bucket.records) bucket.records = [];
+          bucket.records.push(record);
+          await this.gridClient.setStateBucket('contenedor_master', bucket);
+
+          synced.push(record.uid);
+          DebugConsole.log(`Sincronizado: ${record.uid}`, 'info');
+        } catch (e) {
+          DebugConsole.log(`Error al sincronizar ${record.uid}: ${e.message}`, 'error');
+        }
+      }
+
+      // Remove synced from outbox
+      for (const uid of synced) {
+        await RecordStore.delete(uid);
+      }
+
+      this.outboxRecords = this.outboxRecords.filter(r => !synced.includes(r.uid));
+      this.updatePendingBadge();
+
+      if (synced.length > 0) {
+        DebugConsole.log(`${synced.length} registros sincronizados`, 'info');
+        this.showToast(`${synced.length} registros sincronizados`, 'success');
+      }
+    } catch (e) {
+      DebugConsole.log(`Error en sincronización: ${e.message}`, 'error');
+      this.showToast('Error al sincronizar', 'error');
+    }
+  }
+
+  async dataUrlToBlob(dataUrl) {
+    const res = await fetch(dataUrl);
+    return res.blob();
+  }
+
+  showToast(message, type = 'info') {
+    const toast = document.createElement('div');
+    toast.className = `alert alert-${type}`;
+    toast.innerHTML = `
+      <span class="alert-icon">${Icons.svg(type === 'error' ? 'alertCircle' : type === 'success' ? 'checkCircle' : 'infoCircle', { size: 16 })}</span>
+      <span>${message}</span>
+    `;
+
+    const root = document.getElementById('app-root');
+    if (root) {
+      root.insertBefore(toast, root.firstChild);
+      setTimeout(() => toast.remove(), 3000);
+    }
+  }
+
+  renderError(message) {
+    const root = document.getElementById('app-root');
+    root.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">${Icons.svg('alertCircle', { size: 48 })}</div>
+        <p style="font-size: 1rem; margin-bottom: 16px;">${message}</p>
+        <button onclick="location.reload()" class="btn btn-primary">Reintentar</button>
+      </div>
+    `;
+  }
+}
+
+// Initialize app
+window.app = new CapturaApp();
+window.app.init();
+
+// Handle online/offline
+window.addEventListener('online', () => {
+  DebugConsole.log('Reconectado a internet', 'info');
+  window.app.flushOutbox();
+});
+
+window.addEventListener('offline', () => {
+  DebugConsole.log('Perdida de conexión', 'warn');
+});
+
+// Menu button
+document.getElementById('menu-btn').addEventListener('click', () => {
+  window.app.renderMenu();
+});
+</script>
+
+</body>
+</html>
