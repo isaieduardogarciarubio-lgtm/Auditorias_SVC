@@ -641,6 +641,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         Catálogo de Estatus
       </p>
 
+      <div id="catalog-status" style="background: #1a1a1a; border-radius: 6px; padding: 12px; margin-bottom: 20px; border-left: 3px solid #ffd43b;">
+        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
+          <span id="catalog-status-icon" style="font-size: 16px;">⚠</span>
+          <span id="catalog-status-text" style="font-weight: 600; color: #ffd43b;">Sin catálogo</span>
+        </div>
+        <div id="catalog-status-details" style="font-size: 12px; color: #888;"></div>
+      </div>
+
       <label>Archivo CSV (ID, ESTATUS, OPTIMIZADA)</label>
       <div class="drop-zone" id="dropZone">
         <input type="file" id="fileInput" accept=".csv">
@@ -954,6 +962,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       this.setupEventListeners();
       this.loadHeaderLogo();
       await this.loadAllLogs();
+      await this.loadCatalogStatus();
       const hasExistingData = Object.values(this.logs).some(r => r.length > 0);
       if (hasExistingData) {
         this.currentLog = Object.entries(this.logs).find(([, r]) => r.length > 0)[0];
@@ -1038,6 +1047,55 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       this.render();
     }
 
+    async loadCatalogStatus() {
+      try {
+        const catalog = await this.gridClient.getStateBucket('catalogo_estatus');
+        const statusEl = document.getElementById('catalog-status');
+        const iconEl = document.getElementById('catalog-status-icon');
+        const textEl = document.getElementById('catalog-status-text');
+        const detailsEl = document.getElementById('catalog-status-details');
+
+        if (catalog && catalog.rows && catalog.rows > 0) {
+          // Catálogo cargado
+          iconEl.textContent = '✓';
+          iconEl.style.color = '#51cf66';
+          textEl.textContent = `Catálogo activo: ${catalog.rows} shipments`;
+          textEl.style.color = '#51cf66';
+          statusEl.style.borderLeftColor = '#51cf66';
+
+          // Mostrar cuándo fue la última actualización
+          if (catalog.generatedAt) {
+            const generatedDate = new Date(catalog.generatedAt);
+            const now = new Date();
+            const diffMs = now - generatedDate;
+            const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+            const diffDays = Math.floor(diffMs / (1000 * 60 * 60 * 24));
+
+            let timeString;
+            if (diffDays > 0) {
+              timeString = `hace ${diffDays} día${diffDays === 1 ? '' : 's'}`;
+            } else if (diffHours > 0) {
+              timeString = `hace ${diffHours} hora${diffHours === 1 ? '' : 's'}`;
+            } else {
+              timeString = 'hace poco';
+            }
+
+            detailsEl.textContent = `Actualizado ${timeString} • ${generatedDate.toLocaleString('es-MX')}`;
+          }
+        } else {
+          // Sin catálogo
+          iconEl.textContent = '⚠';
+          iconEl.style.color = '#ffd43b';
+          textEl.textContent = 'Sin catálogo';
+          textEl.style.color = '#ffd43b';
+          statusEl.style.borderLeftColor = '#ffd43b';
+          detailsEl.textContent = 'Sube un CSV para habilitar el escaneo en la app de Captura';
+        }
+      } catch (e) {
+        console.error('Error loading catalog status:', e);
+      }
+    }
+
     /**
      * Recarga manual desde el botón "Actualizar", con feedback visual: el
      * ícono gira mientras carga y al terminar se muestra un aviso con el
@@ -1115,6 +1173,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         }
 
         this.showAlert('uploadAlert', 'success', `Catálogo publicado: ${Object.keys(index).length} shipments`);
+
+        // Actualizar el estado visual del catálogo
+        await this.loadCatalogStatus();
       } catch (error) {
         console.error('Error al publicar catálogo:', error);
         DebugConsole.log(`publishCatalog falló: ${error.message}`, 'error');
