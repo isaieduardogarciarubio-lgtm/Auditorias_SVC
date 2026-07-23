@@ -2650,6 +2650,10 @@ class CapturaApp {
     const root = document.getElementById('app-root');
     const catalogReady = this.statusCatalogIndex && Object.keys(this.statusCatalogIndex).length > 0;
     const catalogStatus = this.getCatalogStatus();
+    // Mismo umbral que la app original (STATUS_CATALOG_MAX_AGE_MS): el
+    // catálogo se considera obsoleto pasada una hora desde que se publicó.
+    const catalogAgeMs = this.statusCatalogLoadedAt ? Date.now() - new Date(this.statusCatalogLoadedAt).getTime() : Infinity;
+    const catalogStale = catalogAgeMs > 60 * 60 * 1000;
     this._historyWindowMinutes = this._historyWindowMinutes || 5;
 
     root.innerHTML = `
@@ -2659,9 +2663,9 @@ class CapturaApp {
         <!-- Catalog Status -->
         ${catalogReady ? `
           <div style="display: flex; align-items: center; gap: 6px; margin-bottom: 16px; padding-left: 2px;">
-            <span style="width: 6px; height: 6px; border-radius: 50%; background: #51cf66; flex-shrink: 0;"></span>
-            <span style="font-size: 0.78rem; color: var(--color-text-muted);">
-              Catálogo actualizado · ${Object.keys(this.statusCatalogIndex).length} shipments · ${catalogStatus.replace(/^Cargado /, '')}
+            <span style="width: 6px; height: 6px; border-radius: 50%; background: ${catalogStale ? '#ff6b6b' : '#51cf66'}; flex-shrink: 0;"></span>
+            <span style="font-size: 0.78rem; color: ${catalogStale ? '#ff6b6b' : 'var(--color-text-muted)'};">
+              ${catalogStale ? 'Catálogo desactualizado' : 'Catálogo actualizado'} · ${Object.keys(this.statusCatalogIndex).length} shipments · ${catalogStatus.replace(/^Cargado /, '')}
             </span>
           </div>
         ` : `
