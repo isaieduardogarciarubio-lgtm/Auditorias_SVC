@@ -2532,8 +2532,44 @@ class CapturaApp {
     this.userEmail = null;
     this.pendingCount = 0;
 
+    // Guard de historial: intercepta el botón/gesto "atrás" del sistema
+    // (Android, o el back del navegador) para navegar dentro de la app
+    // (paso anterior del formulario, o al menú) en vez de salir de la app
+    // por completo — sin esto, "atrás" cierra el documento de Grid.
+    this._screen = 'menu';
+    this._inSubScreen = false;
+    window.addEventListener('popstate', () => this.handleHardwareBack());
+    history.replaceState({ screen: 'menu' }, '', '');
+
     DebugConsole.setup();
     DebugConsole.log(`Documento: ${this.docId}`, 'info');
+  }
+
+  /**
+   * Empuja una entrada extra al historial mientras estemos fuera del menú,
+   * para que el siguiente "atrás" dispare popstate (navegación interna) en
+   * vez de la navegación real del navegador/webview.
+   */
+  ensureBackGuard() {
+    if (!this._inSubScreen) {
+      history.pushState({ guard: true }, '', '');
+      this._inSubScreen = true;
+    }
+  }
+
+  handleHardwareBack() {
+    if (this.currentEngine) {
+      this.currentEngine.back();
+    } else {
+      this.renderMenu();
+    }
+
+    if (this._screen !== 'menu') {
+      history.pushState({ guard: true }, '', '');
+      this._inSubScreen = true;
+    } else {
+      this._inSubScreen = false;
+    }
   }
 
   async init() {
@@ -2607,6 +2643,10 @@ class CapturaApp {
   }
 
   async renderMenu() {
+    this.currentEngine = null;
+    this._screen = 'menu';
+    this._inSubScreen = false;
+
     const root = document.getElementById('app-root');
     const catalogReady = this.statusCatalogIndex && Object.keys(this.statusCatalogIndex).length > 0;
     const catalogStatus = this.getCatalogStatus();
@@ -2751,6 +2791,9 @@ class CapturaApp {
       DebugConsole.log(`Formulario no encontrado: ${formId}`, 'error');
       return;
     }
+
+    this._screen = 'form';
+    this.ensureBackGuard();
 
     const root = document.getElementById('app-root');
     root.innerHTML = '<div id="form-container"></div>';
