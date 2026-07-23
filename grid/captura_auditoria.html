@@ -2756,9 +2756,27 @@ class CapturaApp {
     }
   }
 
-  async dataUrlToBlob(dataUrl) {
-    const res = await fetch(dataUrl);
-    return res.blob();
+  /**
+   * Convierte una data: URL a Blob sin usar fetch(). fetch(dataUrl) no
+   * toca la red (el navegador la resuelve localmente), pero el CSP/sandbox
+   * del iframe donde Grid monta el documento bloquea igual esa llamada y
+   * revienta con el mismo "TypeError: Failed to fetch" que un fallo de red
+   * real — decodificar el base64 a mano evita el fetch por completo.
+   */
+  dataUrlToBlob(dataUrl) {
+    const commaIdx = dataUrl.indexOf(',');
+    const header = dataUrl.slice(5, commaIdx); // quita "data:"
+    const data = dataUrl.slice(commaIdx + 1);
+    const mime = (header.split(';')[0] || 'application/octet-stream') || 'application/octet-stream';
+    const isBase64 = header.includes('base64');
+
+    if (isBase64) {
+      const binary = atob(data);
+      const bytes = new Uint8Array(binary.length);
+      for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i);
+      return new Blob([bytes], { type: mime });
+    }
+    return new Blob([decodeURIComponent(data)], { type: mime });
   }
 
   showToast(message, type = 'info') {
