@@ -499,30 +499,6 @@ select.step-input {
   50% { top: 88%; }
 }
 
-/* Feedback de detección: navigator.vibrate() no existe en iOS/Safari (Apple
-   nunca implementó la Vibration API), así que un flash visual es el único
-   canal de feedback garantizado en todos los navegadores — no depende de
-   ninguna API opcional ni de permisos. */
-.scan-flash {
-  position: absolute;
-  inset: 0;
-  pointer-events: none;
-  opacity: 0;
-}
-.scan-flash.flash-success {
-  background: rgba(52, 199, 89, 0.4);
-  animation: scan-flash-pulse 0.4s ease-out;
-}
-.scan-flash.flash-error {
-  background: rgba(255, 69, 58, 0.4);
-  animation: scan-flash-pulse 0.4s ease-out;
-}
-@keyframes scan-flash-pulse {
-  0% { opacity: 0; }
-  15% { opacity: 1; }
-  100% { opacity: 0; }
-}
-
 .scanner-torch {
   position: absolute;
   top: var(--spacing-md);
@@ -1731,7 +1707,6 @@ class FormEngine {
       <div class="scanner-viewport">
         <video class="scanner-video" playsinline muted></video>
         <div class="scanner-frame"><span class="scanner-line"></span></div>
-        <div class="scan-flash"></div>
       </div>
     `;
 
@@ -1932,15 +1907,11 @@ class FormEngine {
     const parsed = ScanParser.parse(text, field.idType);
     if (!parsed) {
       this.vibrate(40);
-      this.flashScanner('error');
-      this.beep(220, 150);
       this.enterScanRejected(field);
       return;
     }
 
     this.vibrate(60);
-    this.flashScanner('success');
-    this.beep(880, 90);
     this.enterDetectedState(field, parsed, format);
   }
 
@@ -2319,47 +2290,6 @@ class FormEngine {
         navigator.vibrate(pattern);
       } catch (e) {}
     }
-  }
-
-  /**
-   * Flash visual en el viewport de la cámara — a diferencia de vibrate(),
-   * que iOS/Safari nunca soporta, esto es CSS puro y funciona igual en
-   * todos los navegadores. Es el feedback "garantizado"; vibrate() y
-   * beep() son un plus donde el navegador lo permita.
-   */
-  flashScanner(type) {
-    const el = this.scannerBody && this.scannerBody.querySelector('.scan-flash');
-    if (!el) return;
-    el.classList.remove('flash-success', 'flash-error');
-    void el.offsetWidth; // fuerza reflow para poder re-disparar la animación
-    el.classList.add(type === 'error' ? 'flash-error' : 'flash-success');
-  }
-
-  /**
-   * Beep corto vía Web Audio (best-effort): Safari sí soporta AudioContext,
-   * pero su política de autoplay puede dejarlo "suspended" fuera de un
-   * gesto de usuario directo — por eso esto es un complemento, nunca el
-   * único canal de feedback (ver flashScanner, que sí es confiable).
-   */
-  beep(frequency = 880, durationMs = 90) {
-    try {
-      const AudioContextClass = window.AudioContext || window.webkitAudioContext;
-      if (!AudioContextClass) return;
-      if (!this._audioCtx) this._audioCtx = new AudioContextClass();
-      const ctx = this._audioCtx;
-      if (ctx.state === 'suspended') ctx.resume().catch(() => {});
-
-      const osc = ctx.createOscillator();
-      const gain = ctx.createGain();
-      osc.type = 'sine';
-      osc.frequency.value = frequency;
-      gain.gain.setValueAtTime(0.15, ctx.currentTime);
-      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + durationMs / 1000);
-      osc.connect(gain);
-      gain.connect(ctx.destination);
-      osc.start();
-      osc.stop(ctx.currentTime + durationMs / 1000);
-    } catch (e) {}
   }
 
   showError(message) {
