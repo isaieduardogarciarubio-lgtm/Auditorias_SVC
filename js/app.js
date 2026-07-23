@@ -242,6 +242,14 @@ class FormApp {
         </div>
         <div class="form-card-arrow">${Icons.svg('arrowRight', { size: 18 })}</div>
       `;
+
+      // Para "Validación de Contenedor", agregar badge de estado del catálogo
+      if (form.id === 'contenedor') {
+        const catalogBadge = this.createCatalogStatusBadge();
+        card.style.position = 'relative';
+        card.appendChild(catalogBadge);
+      }
+
       card.addEventListener('click', () => this.startCapture(form.id));
       grid.appendChild(card);
     });
@@ -323,59 +331,55 @@ class FormApp {
   }
 
   /**
-   * Versión compacta del estado del catálogo para mostrar dentro de formularios
-   * que lo requieren. Solo muestra el estado, sin botón grande — integrado al
-   * contexto del log específico.
+   * Badge compacto para mostrar el estado del catálogo en la tarjeta del
+   * formulario "Validación de Contenedor". Solo indica: cargado (✓), no cargado (✗),
+   * o desactualizado (⚠).
    */
-  renderCompactCatalogStatus() {
-    const wrap = document.createElement('div');
-    wrap.style.marginTop = 'var(--spacing-md)';
-    wrap.style.padding = 'var(--spacing-sm)';
-    wrap.style.backgroundColor = 'var(--color-surface-hover)';
-    wrap.style.borderRadius = 'var(--radius-card)';
-    wrap.style.display = 'flex';
-    wrap.style.justifyContent = 'space-between';
-    wrap.style.alignItems = 'center';
-    wrap.style.gap = 'var(--spacing-sm)';
+  createCatalogStatusBadge() {
+    const badge = document.createElement('div');
+    badge.style.position = 'absolute';
+    badge.style.top = 'var(--spacing-xs)';
+    badge.style.right = 'var(--spacing-xs)';
+    badge.style.display = 'flex';
+    badge.style.alignItems = 'center';
+    badge.style.justifyContent = 'center';
+    badge.style.width = '24px';
+    badge.style.height = '24px';
+    badge.style.borderRadius = '50%';
+    badge.style.cursor = 'pointer';
+    badge.style.zIndex = '10';
+    badge.title = 'Estado del catálogo de estatus';
 
-    const label = document.createElement('div');
-    label.style.flex = '1';
-    label.style.minWidth = '0';
-
-    const title = document.createElement('div');
-    title.style.fontSize = '0.85rem';
-    title.style.fontWeight = '500';
-    title.style.color = 'var(--color-text-primary)';
-    title.style.marginBottom = '2px';
-    title.textContent = 'Catálogo de Estatus';
-    label.appendChild(title);
-
-    const status = document.createElement('div');
-    status.style.fontSize = '0.75rem';
-    status.style.color = 'var(--color-text-muted)';
-    status.style.whiteSpace = 'nowrap';
-    status.style.overflow = 'hidden';
-    status.style.textOverflow = 'ellipsis';
-    if (this.statusCatalogError) {
-      status.textContent = `Error: ${this.statusCatalogError}`;
-    } else if (this.statusCatalogIndex) {
-      const count = Object.keys(this.statusCatalogIndex).length;
-      status.textContent = `${count} shipments · publicado ${this.formatCatalogAge(this.statusCatalogAgeMs())}`;
+    // Determinar estado y color
+    let bgColor, iconName, tooltipText;
+    if (!this.statusCatalogIndex) {
+      // No cargado
+      bgColor = 'rgba(255, 92, 108, 0.2)';
+      iconName = 'x';
+      tooltipText = 'Catálogo no cargado';
+    } else if (this.isStatusCatalogStale()) {
+      // Desactualizado
+      bgColor = 'rgba(255, 209, 0, 0.2)';
+      iconName = 'alertCircle';
+      tooltipText = 'Catálogo desactualizado (>1 hora)';
     } else {
-      status.textContent = 'No cargado';
+      // Cargado y fresco
+      bgColor = 'rgba(0, 214, 137, 0.2)';
+      iconName = 'check';
+      tooltipText = `Catálogo cargado: ${Object.keys(this.statusCatalogIndex).length} shipments`;
     }
-    label.appendChild(status);
-    wrap.appendChild(label);
 
-    const refreshBtn = document.createElement('button');
-    refreshBtn.className = 'btn-icon btn-sm';
-    refreshBtn.title = 'Actualizar catálogo';
-    refreshBtn.style.flexShrink = '0';
-    refreshBtn.innerHTML = Icons.svg('refresh', { size: 16 });
-    refreshBtn.addEventListener('click', () => this.refreshCentralCatalog());
-    wrap.appendChild(refreshBtn);
+    badge.style.backgroundColor = bgColor;
+    badge.title = tooltipText;
+    badge.innerHTML = Icons.svg(iconName, { size: 14 });
 
-    return wrap;
+    // Click para actualizar catálogo
+    badge.addEventListener('click', (e) => {
+      e.stopPropagation();
+      this.refreshCentralCatalog();
+    });
+
+    return badge;
   }
 
   /**
@@ -555,13 +559,6 @@ class FormApp {
     }
 
     app.innerHTML = '';
-
-    // Para formularios que requieren catálogo, mostrar estado compacto arriba
-    if (formConfig.requiresStatusCatalog) {
-      const compactCatalog = this.renderCompactCatalogStatus();
-      app.appendChild(compactCatalog);
-    }
-
     const container = document.createElement('div');
     container.id = 'step_container';
     app.appendChild(container);
