@@ -844,8 +844,9 @@ const Icons = (() => {
  */
 class RecordStore {
   static DB_NAME = 'auditorias_svc_db';
-  static DB_VERSION = 1;
+  static DB_VERSION = 2;
   static STORE = 'records';
+  static HISTORY_STORE = 'history';
   static _dbPromise = null;
 
   static open() {
@@ -857,6 +858,10 @@ class RecordStore {
         if (!db.objectStoreNames.contains(this.STORE)) {
           const store = db.createObjectStore(this.STORE, { keyPath: 'uid' });
           store.createIndex('formId', 'formId', { unique: false });
+        }
+        if (!db.objectStoreNames.contains(this.HISTORY_STORE)) {
+          const history = db.createObjectStore(this.HISTORY_STORE, { keyPath: 'uid' });
+          history.createIndex('ts', 'ts', { unique: false });
         }
       };
       req.onsuccess = () => resolve(req.result);
@@ -921,6 +926,62 @@ class RecordStore {
             grouped[row.formId].push(row.data);
           });
         resolve(grouped);
+      };
+      req.onerror = () => reject(req.error);
+    });
+  }
+
+  /**
+   * Historial de capturas del dispositivo (independiente de la cola de
+   * sincronización): se escribe al capturar y se marca `synced` al subir,
+   * pero nunca se borra automáticamente — sirve para que el operador vea
+   * "qué acabo de escanear" sin depender de si ya llegó a Grid.
+   */
+  static async addHistory(entry) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.HISTORY_STORE, 'readwrite');
+      tx.objectStore(this.HISTORY_STORE).put(entry);
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  static async markHistorySynced(uid) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.HISTORY_STORE, 'readwrite');
+      const store = tx.objectStore(this.HISTORY_STORE);
+      const getReq = store.get(uid);
+      getReq.onsuccess = () => {
+        const entry = getReq.result;
+        if (entry) {
+          entry.synced = true;
+          entry.syncedAt = new Date().toISOString();
+          store.put(entry);
+        }
+      };
+      tx.oncomplete = () => resolve();
+      tx.onerror = () => reject(tx.error);
+    });
+  }
+
+  /**
+   * Entradas del historial con ts dentro de los últimos `minutes` minutos,
+   * más recientes primero. No pagina — el volumen de una ventana de pocos
+   * minutos es siempre pequeño.
+   */
+  static async getRecentHistory(minutes) {
+    const db = await this.open();
+    return new Promise((resolve, reject) => {
+      const tx = db.transaction(this.HISTORY_STORE, 'readonly');
+      const req = tx.objectStore(this.HISTORY_STORE).getAll();
+      req.onsuccess = () => {
+        const cutoff = Date.now() - minutes * 60 * 1000;
+        const recent = (req.result || [])
+          .filter((e) => new Date(e.ts).getTime() >= cutoff)
+          .sort((a, b) => new Date(b.ts) - new Date(a.ts));
+        resolve(recent);
       };
       req.onerror = () => reject(req.error);
     });
@@ -2205,9 +2266,40 @@ class GridClient {
     this._updatedAtByName = {};
   }
 
+  /**
+   * fetch() con timeout y un error tipado para distinguir "el servidor
+   * respondió con un error HTTP" de "la petición nunca llegó" (red caída,
+   * DNS, CORS, timeout) — el navegador colapsa todo eso en el mismo
+   * `TypeError: Failed to fetch` sin más contexto, así que lo etiquetamos
+   * aquí una sola vez para que quien llama no tenga que adivinar.
+   */
+  async _fetchWithTimeout(url, options = {}, timeoutMs = 15000) {
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), timeoutMs);
+    try {
+      return await fetch(url, { ...options, signal: controller.signal });
+    } catch (e) {
+      if (e.name === 'AbortError') {
+        const err = new Error(`Tiempo de espera agotado (${timeoutMs / 1000}s)`);
+        err.isTimeout = true;
+        throw err;
+      }
+      // TypeError con "Failed to fetch" (Chrome) / "NetworkError" (Firefox):
+      // la petición no llegó a salir de la red del dispositivo. No es un
+      // error de la app ni de Grid — es la conexión real, aunque
+      // navigator.onLine haya dicho que sí había internet.
+      const err = new Error('Sin conexión con el servidor (red no disponible)');
+      err.isNetworkError = true;
+      err.cause = e;
+      throw err;
+    } finally {
+      clearTimeout(timeoutId);
+    }
+  }
+
   async getMe() {
     try {
-      const res = await fetch(`${this.baseUrl}/api/v1/me`, { credentials: 'include' });
+      const res = await this._fetchWithTimeout(`${this.baseUrl}/api/v1/me`, { credentials: 'include' });
       if (!res.ok) throw new Error(`${res.status}`);
       return await res.json();
     } catch (e) {
@@ -2223,23 +2315,11 @@ class GridClient {
     fd.append('description', 'Foto de auditoría (captura)');
     fd.append('visibility', 'public');
 
-    const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 30000);
-
-    let res;
-    try {
-      res = await fetch(`${this.baseUrl}/api/v1/documents`, {
-        method: 'POST',
-        credentials: 'include',
-        body: fd,
-        signal: controller.signal,
-      });
-    } catch (e) {
-      if (e.name === 'AbortError') throw new Error('Tiempo de espera agotado (30s) subiendo la foto');
-      throw e;
-    } finally {
-      clearTimeout(timeoutId);
-    }
+    const res = await this._fetchWithTimeout(`${this.baseUrl}/api/v1/documents`, {
+      method: 'POST',
+      credentials: 'include',
+      body: fd,
+    }, 30000);
 
     if (!res.ok) {
       const err = await res.json().catch(() => ({}));
@@ -2249,48 +2329,45 @@ class GridClient {
     return body.id || body.doc_id || (body.document && body.document.id) || null;
   }
 
+  /**
+   * A diferencia de las demás llamadas, los errores de red/timeout se
+   * relanzan (no se devuelven como null) para que flushOutbox pueda
+   * distinguir "todavía no existe el bucket" (404 → null, normal) de
+   * "no se pudo hablar con Grid" (hay que detener la sincronización, no
+   * seguir intentando registro por registro contra una red caída).
+   */
   async getStateBucket(name) {
-    try {
-      const res = await fetch(`${this.baseUrl}/api/v1/documents/${this.docId}/states/${name}`, {
-        credentials: 'include',
-      });
-      if (res.status === 404) return null;
-      if (!res.ok) throw new Error(`${res.status}`);
-      const body = await res.json();
-      this._updatedAtByName[name] = body.updated_at || '';
-      return body.state ?? null;
-    } catch (e) {
-      console.error(`getStateBucket ${name}:`, e);
-      return null;
-    }
+    const res = await this._fetchWithTimeout(`${this.baseUrl}/api/v1/documents/${this.docId}/states/${name}`, {
+      credentials: 'include',
+    });
+    if (res.status === 404) return null;
+    if (!res.ok) throw new Error(`${res.status}`);
+    const body = await res.json();
+    this._updatedAtByName[name] = body.updated_at || '';
+    return body.state ?? null;
   }
 
   async setStateBucket(name, data) {
-    try {
-      const ifUpdatedAt = this._updatedAtByName[name] || '';
-      const res = await fetch(`${this.baseUrl}/api/v1/documents/${this.docId}/states/${name}`, {
-        method: 'PUT',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ state: data, if_updated_at: ifUpdatedAt }),
-        credentials: 'include',
-      });
+    const ifUpdatedAt = this._updatedAtByName[name] || '';
+    const res = await this._fetchWithTimeout(`${this.baseUrl}/api/v1/documents/${this.docId}/states/${name}`, {
+      method: 'PUT',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ state: data, if_updated_at: ifUpdatedAt }),
+      credentials: 'include',
+    });
 
-      if (res.status === 409) {
-        const conflictBody = await res.json().catch(() => ({}));
-        if (conflictBody.current_updated_at) {
-          this._updatedAtByName[name] = conflictBody.current_updated_at;
-        }
-        console.warn('Conflict on state bucket update — retrying');
-        return { conflict: true };
+    if (res.status === 409) {
+      const conflictBody = await res.json().catch(() => ({}));
+      if (conflictBody.current_updated_at) {
+        this._updatedAtByName[name] = conflictBody.current_updated_at;
       }
-      if (!res.ok) throw new Error(`${res.status}`);
-      const body = await res.json();
-      this._updatedAtByName[name] = body.updated_at || '';
-      return { ok: true };
-    } catch (e) {
-      console.error(`setStateBucket ${name}:`, e);
-      return null;
+      console.warn('Conflict on state bucket update — retrying');
+      return { conflict: true };
     }
+    if (!res.ok) throw new Error(`${res.status}`);
+    const body = await res.json();
+    this._updatedAtByName[name] = body.updated_at || '';
+    return { ok: true };
   }
 }
 
@@ -2382,10 +2459,11 @@ class CapturaApp {
     }
   }
 
-  renderMenu() {
+  async renderMenu() {
     const root = document.getElementById('app-root');
     const catalogReady = this.statusCatalogIndex && Object.keys(this.statusCatalogIndex).length > 0;
     const catalogStatus = this.getCatalogStatus();
+    this._historyWindowMinutes = this._historyWindowMinutes || 5;
 
     root.innerHTML = `
       <div style="padding-bottom: 20px;">
@@ -2433,8 +2511,68 @@ class CapturaApp {
             </button>
           </div>
         ` : ''}
+
+        <div style="margin-top: 32px;">
+          <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
+            <h3 style="font-size: 1rem; font-weight: 700;">Historial reciente</h3>
+            <select id="history-window-select" style="background: var(--color-surface); color: var(--color-text-primary); border: 1px solid var(--color-border, #333); border-radius: 6px; padding: 4px 8px; font-size: 0.8rem;">
+              <option value="5" ${this._historyWindowMinutes === 5 ? 'selected' : ''}>Últimos 5 min</option>
+              <option value="15" ${this._historyWindowMinutes === 15 ? 'selected' : ''}>Últimos 15 min</option>
+              <option value="30" ${this._historyWindowMinutes === 30 ? 'selected' : ''}>Últimos 30 min</option>
+              <option value="60" ${this._historyWindowMinutes === 60 ? 'selected' : ''}>Última hora</option>
+            </select>
+          </div>
+          <div id="history-list">
+            <div style="color: var(--color-text-muted); font-size: 0.85rem;">Cargando...</div>
+          </div>
+        </div>
       </div>
     `;
+
+    document.getElementById('history-window-select').addEventListener('change', (e) => {
+      this._historyWindowMinutes = parseInt(e.target.value, 10);
+      this.renderHistoryList();
+    });
+
+    await this.renderHistoryList();
+  }
+
+  async renderHistoryList() {
+    const container = document.getElementById('history-list');
+    if (!container) return;
+
+    try {
+      const entries = await RecordStore.getRecentHistory(this._historyWindowMinutes);
+
+      if (entries.length === 0) {
+        container.innerHTML = `<div style="color: var(--color-text-muted); font-size: 0.85rem; padding: 12px 0;">Sin capturas en los últimos ${this._historyWindowMinutes} minutos</div>`;
+        return;
+      }
+
+      container.innerHTML = entries.map((entry) => {
+        const time = new Date(entry.ts).toLocaleTimeString('es-MX', { hour: '2-digit', minute: '2-digit', second: '2-digit' });
+        const statusBadge = entry.synced
+          ? `<span style="color: #51cf66; font-size: 0.75rem; font-weight: 600;">✓ Sincronizado</span>`
+          : `<span style="color: #ffd43b; font-size: 0.75rem; font-weight: 600;">⏳ Pendiente</span>`;
+        const resultColor = entry.resultado === 'En contenedor' ? '#51cf66' : '#ff6b6b';
+
+        return `
+          <div style="background: var(--color-surface); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
+            <div style="flex: 1; min-width: 0;">
+              <div style="font-weight: 600; font-size: 0.9rem;">${entry.shipment || '(sin ID)'}</div>
+              <div style="font-size: 0.78rem; color: ${resultColor};">${entry.resultado || ''}</div>
+            </div>
+            <div style="text-align: right; flex-shrink: 0;">
+              <div style="font-size: 0.78rem; color: var(--color-text-muted);">${time}</div>
+              <div style="margin-top: 2px;">${statusBadge}</div>
+            </div>
+          </div>
+        `;
+      }).join('');
+    } catch (e) {
+      DebugConsole.log(`Error al cargar historial: ${e.message}`, 'error');
+      container.innerHTML = `<div style="color: var(--color-text-muted); font-size: 0.85rem;">No se pudo cargar el historial</div>`;
+    }
   }
 
   getCatalogStatus() {
@@ -2498,6 +2636,16 @@ class CapturaApp {
       this.outboxRecords.push(record);
       this.updatePendingBadge();
 
+      // Historial del dispositivo (independiente de la cola de sync)
+      await RecordStore.addHistory({
+        uid,
+        ts,
+        formId,
+        shipment: record.shipment,
+        resultado: record.resultado,
+        synced: false,
+      });
+
       DebugConsole.log(`Registro guardado localmente (${uid})`, 'info');
 
       // Try to sync immediately if online
@@ -2514,6 +2662,35 @@ class CapturaApp {
     }
   }
 
+  /**
+   * Sube un registro a contenedor_master con reintento en 409 (otro
+   * dispositivo escribió al mismo tiempo). Los errores de red/timeout se
+   * relanzan tal cual (marcados isNetworkError/isTimeout) para que
+   * flushOutbox decida cortar el lote en vez de reintentar cada registro
+   * contra una conexión que ya sabemos que no responde.
+   */
+  async syncOneRecord(record, attempt = 0) {
+    if (record.evidencia && record.evidencia.startsWith('data:')) {
+      const blob = await this.dataUrlToBlob(record.evidencia);
+      const docId = await this.gridClient.uploadPublicDocument(blob, `evidencia_${record.uid}.jpg`);
+      record.evidencia = docId;
+    }
+
+    const bucket = (await this.gridClient.getStateBucket('contenedor_master')) || { records: [] };
+    if (!bucket.records) bucket.records = [];
+
+    const alreadyThere = bucket.records.some((r) => r.uid === record.uid);
+    if (!alreadyThere) bucket.records.push(record);
+
+    const result = await this.gridClient.setStateBucket('contenedor_master', bucket);
+
+    if (result?.conflict) {
+      if (attempt >= 5) throw new Error('Demasiados conflictos de escritura simultánea — intenta de nuevo');
+      await new Promise((r) => setTimeout(r, 400 + Math.random() * 400));
+      return this.syncOneRecord(record, attempt + 1);
+    }
+  }
+
   async flushOutbox() {
     if (this.outboxRecords.length === 0) {
       this.showToast('No hay registros pendientes', 'info');
@@ -2525,47 +2702,57 @@ class CapturaApp {
       return;
     }
 
-    try {
-      DebugConsole.log('Sincronizando registros...', 'info');
+    DebugConsole.log('Sincronizando registros...', 'info');
 
-      const synced = [];
-      for (const record of this.outboxRecords) {
-        try {
-          // Upload photo if present
-          if (record.evidencia && record.evidencia.startsWith('data:')) {
-            const blob = await this.dataUrlToBlob(record.evidencia);
-            const docId = await this.gridClient.uploadPublicDocument(blob, `evidencia_${record.uid}.jpg`);
-            record.evidencia = docId;
-          }
+    const synced = [];
+    let networkDown = false;
 
-          // Write to state bucket
-          const bucket = await this.gridClient.getStateBucket('contenedor_master') || { records: [] };
-          if (!bucket.records) bucket.records = [];
-          bucket.records.push(record);
-          await this.gridClient.setStateBucket('contenedor_master', bucket);
-
-          synced.push(record.uid);
-          DebugConsole.log(`Sincronizado: ${record.uid}`, 'info');
-        } catch (e) {
-          DebugConsole.log(`Error al sincronizar ${record.uid}: ${e.message}`, 'error');
+    for (const record of this.outboxRecords) {
+      try {
+        await this.syncOneRecord(record);
+        synced.push(record.uid);
+        await RecordStore.markHistorySynced(record.uid);
+        DebugConsole.log(`Sincronizado: ${record.uid}`, 'info');
+      } catch (e) {
+        if (e.isNetworkError || e.isTimeout) {
+          // La red no responde: seguir intentando registro por registro
+          // solo repetiría el mismo fallo. Se corta el lote y se deja el
+          // resto en la cola para el próximo intento (evento 'online',
+          // botón manual, o reintento automático).
+          DebugConsole.log(`Sin conexión real con Grid: ${e.message} — se detiene el lote`, 'warn');
+          networkDown = true;
+          break;
         }
+        DebugConsole.log(`Error al sincronizar ${record.uid}: ${e.message}`, 'error');
       }
+    }
 
-      // Remove synced from outbox
-      for (const uid of synced) {
-        await RecordStore.delete(uid);
-      }
+    // Remove synced from outbox
+    for (const uid of synced) {
+      await RecordStore.delete(uid);
+    }
 
-      this.outboxRecords = this.outboxRecords.filter(r => !synced.includes(r.uid));
-      this.updatePendingBadge();
+    this.outboxRecords = this.outboxRecords.filter(r => !synced.includes(r.uid));
+    this.updatePendingBadge();
 
-      if (synced.length > 0) {
-        DebugConsole.log(`${synced.length} registros sincronizados`, 'info');
-        this.showToast(`${synced.length} registros sincronizados`, 'success');
-      }
-    } catch (e) {
-      DebugConsole.log(`Error en sincronización: ${e.message}`, 'error');
-      this.showToast('Error al sincronizar', 'error');
+    if (synced.length > 0) {
+      DebugConsole.log(`${synced.length} registros sincronizados`, 'info');
+      this.showToast(`${synced.length} registros sincronizados`, 'success');
+    }
+
+    if (networkDown) {
+      this.showToast(
+        `Sin conexión con Grid — ${this.outboxRecords.length} pendiente(s), se reintentará al reconectar`,
+        'warn'
+      );
+    } else if (synced.length === 0 && this.outboxRecords.length > 0) {
+      this.showToast('No se pudo sincronizar — ver consola de errores', 'error');
+    }
+
+    // Si el menú está visible, refrescar el historial para reflejar los
+    // nuevos badges "Sincronizado" sin esperar a la próxima navegación.
+    if (document.getElementById('history-list')) {
+      this.renderHistoryList();
     }
   }
 
