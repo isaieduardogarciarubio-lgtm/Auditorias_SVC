@@ -275,6 +275,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     .alert.success { border-color: rgba(0,214,137,.35);   background: rgba(0,214,137,.08);   color: #7FE9C2; }
     .alert.error   { border-color: rgba(255,92,108,.35);  background: rgba(255,92,108,.08);  color: #FFB3BB; }
     .alert.warning { border-color: rgba(255,209,0,.35);   background: rgba(255,209,0,.08);   color: #FFE680; }
+    /* Variante visible por defecto (no depende de un JS que la muestre tras
+       una acción) — para estados permanentes como "catálogo cargado/faltante" */
+    .alert.persistent { display: flex; align-items: flex-start; margin-top: 0; margin-bottom: 20px; }
+    .alert-icon { display: flex; flex-shrink: 0; }
+    .alert-icon svg { width: 18px; height: 18px; }
 
     /* ── PROGRESS ── */
     .upload-progress {
@@ -641,12 +646,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         Catálogo de Estatus
       </p>
 
-      <div id="catalog-status" style="background: #1a1a1a; border-radius: 6px; padding: 12px; margin-bottom: 20px; border-left: 3px solid #ffd43b;">
-        <div style="display: flex; align-items: center; gap: 8px; margin-bottom: 4px;">
-          <span id="catalog-status-icon" style="font-size: 16px;">⚠</span>
-          <span id="catalog-status-text" style="font-weight: 600; color: #ffd43b;">Sin catálogo</span>
+      <div id="catalog-status" class="alert warning persistent">
+        <span id="catalog-status-icon" class="alert-icon"></span>
+        <div>
+          <div id="catalog-status-text" style="font-weight: 700;"></div>
+          <div id="catalog-status-details" style="font-size: 12px; color: var(--text-mut); margin-top: 2px;"></div>
         </div>
-        <div id="catalog-status-details" style="font-size: 12px; color: #888;"></div>
       </div>
 
       <label>Archivo CSV (ID, ESTATUS, OPTIMIZADA)</label>
@@ -1048,6 +1053,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
 
     async loadCatalogStatus() {
+      // Íconos stroke-based (mismo patrón que el resto del navbar: viewBox 24,
+      // fill none, stroke currentColor) — el color lo hereda de la clase
+      // .alert.success/.warning vía currentColor, no se fija a mano.
+      const ICON_CHECK = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>';
+      const ICON_ALERT = '<svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M12 8v5"/><circle cx="12" cy="16" r="0.75" fill="currentColor" stroke="none"/></svg>';
+
       try {
         const catalog = await this.gridClient.getStateBucket('catalogo_estatus');
         const statusEl = document.getElementById('catalog-status');
@@ -1056,12 +1067,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         const detailsEl = document.getElementById('catalog-status-details');
 
         if (catalog && catalog.rows && catalog.rows > 0) {
-          // Catálogo cargado
-          iconEl.textContent = '✓';
-          iconEl.style.color = '#51cf66';
+          statusEl.classList.remove('warning');
+          statusEl.classList.add('success');
+          iconEl.innerHTML = ICON_CHECK;
           textEl.textContent = `Catálogo activo: ${catalog.rows} shipments`;
-          textEl.style.color = '#51cf66';
-          statusEl.style.borderLeftColor = '#51cf66';
 
           // Mostrar cuándo fue la última actualización
           if (catalog.generatedAt) {
@@ -1083,12 +1092,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             detailsEl.textContent = `Actualizado ${timeString} • ${generatedDate.toLocaleString('es-MX')}`;
           }
         } else {
-          // Sin catálogo
-          iconEl.textContent = '⚠';
-          iconEl.style.color = '#ffd43b';
+          statusEl.classList.remove('success');
+          statusEl.classList.add('warning');
+          iconEl.innerHTML = ICON_ALERT;
           textEl.textContent = 'Sin catálogo';
-          textEl.style.color = '#ffd43b';
-          statusEl.style.borderLeftColor = '#ffd43b';
           detailsEl.textContent = 'Sube un CSV para habilitar el escaneo en la app de Captura';
         }
       } catch (e) {
