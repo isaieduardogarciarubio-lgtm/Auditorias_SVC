@@ -331,8 +331,8 @@ class FormApp {
     const wrap = document.createElement('div');
     wrap.style.marginTop = 'var(--spacing-md)';
     wrap.style.padding = 'var(--spacing-sm)';
-    wrap.style.backgroundColor = 'var(--color-surface-alt)';
-    wrap.style.borderRadius = 'var(--radius)';
+    wrap.style.backgroundColor = 'var(--color-surface-hover)';
+    wrap.style.borderRadius = 'var(--radius-card)';
     wrap.style.display = 'flex';
     wrap.style.justifyContent = 'space-between';
     wrap.style.alignItems = 'center';
