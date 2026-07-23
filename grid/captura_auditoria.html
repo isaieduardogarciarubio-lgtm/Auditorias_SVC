@@ -2,7 +2,7 @@
 <html lang="es">
 <head>
   <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
   <title>Captura de Auditoría — Grid</title>
 
   <style>
@@ -72,7 +72,11 @@ body {
   background: var(--color-bg);
   color: var(--color-text-primary);
   line-height: 1.5;
+  /* 100vh en mobile incluye el área que tapa la barra de direcciones; 100dvh
+     (dynamic viewport height) se ajusta al alto real visible. El vh queda
+     como fallback para navegadores sin soporte de dvh. */
   min-height: 100vh;
+  min-height: 100dvh;
 }
 
 .icon {
@@ -89,6 +93,7 @@ body {
 
 .app-container {
   min-height: 100vh;
+  min-height: 100dvh;
   display: flex;
   flex-direction: column;
 }
@@ -142,6 +147,23 @@ body {
   transition: opacity 0.15s ease;
 }
 
+.user-avatar {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  width: 28px;
+  height: 28px;
+  border-radius: var(--radius-pill);
+  background: var(--color-highlight);
+  color: var(--color-text-primary);
+  font-size: 0.68rem;
+  font-weight: 700;
+  letter-spacing: 0.02em;
+  cursor: pointer;
+  user-select: none;
+}
+
 .icon-btn-plain:hover {
   opacity: 0.7;
 }
@@ -180,6 +202,40 @@ body {
 
   .content {
     padding: var(--spacing-md);
+  }
+}
+
+/* Pantallas de poca altura (iPhone SE, Android compactos, o el navbar del
+   teclado abierto): se reduce tipografía/espaciado y los topes de alto de
+   cámara/foto para que el paso completo (pregunta + cuerpo + acciones)
+   quepa sin necesidad de deslizar. */
+@media (max-height: 700px) {
+  :root {
+    --font-h1: 1.4rem;
+  }
+
+  .step-screen {
+    padding-top: var(--spacing-md);
+    padding-bottom: 96px;
+  }
+
+  .step-question {
+    margin-bottom: var(--spacing-md);
+  }
+
+  .scanner-viewport {
+    max-height: 42vh;
+    max-height: 42dvh;
+  }
+
+  .photo-preview img {
+    max-height: 38vh;
+    max-height: 38dvh;
+  }
+
+  .photo-dropzone {
+    min-height: 160px;
+    padding: var(--spacing-lg);
   }
 }
 
@@ -251,6 +307,7 @@ body {
   display: flex;
   flex-direction: column;
   min-height: calc(100vh - 160px);
+  min-height: calc(100dvh - 160px);
   padding-top: var(--spacing-lg);
   padding-bottom: 120px;
 }
@@ -792,6 +849,7 @@ select.step-input {
       <h1 class="navbar-title">Captura de Auditoría</h1>
       <div style="display: flex; gap: 8px; align-items: center;">
         <span class="status-badge" id="status-badge">0 pendientes</span>
+        <div class="user-avatar" id="user-avatar" title=""></div>
         <button class="icon-btn-plain" id="menu-btn" title="Menú">
           <svg class="icon" width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round">
             <circle cx="12" cy="12" r="1"/><circle cx="19" cy="12" r="1"/><circle cx="5" cy="12" r="1"/>
@@ -2573,11 +2631,36 @@ class CapturaApp {
     }
   }
 
+  /**
+   * Iniciales del correo (ej. isaieduardo.garciarubio@mercadolibre.com.mx
+   * → "IG"), igual que el patrón de avatar de otras apps internas: primera
+   * letra de las dos primeras palabras del local-part (separadas por
+   * punto/guión), o las dos primeras letras si no hay separador.
+   */
+  static getInitials(email) {
+    if (!email) return '?';
+    const local = email.split('@')[0] || '';
+    const parts = local.split(/[._-]+/).filter(Boolean);
+    if (parts.length >= 2) {
+      return (parts[0][0] + parts[1][0]).toUpperCase();
+    }
+    return local.slice(0, 2).toUpperCase() || '?';
+  }
+
+  renderUserAvatar() {
+    const el = document.getElementById('user-avatar');
+    if (!el) return;
+    el.textContent = CapturaApp.getInitials(this.userEmail);
+    el.title = this.userEmail || '';
+    el.addEventListener('click', () => this.showToast(this.userEmail, 'info'));
+  }
+
   async init() {
     try {
       const me = await this.gridClient.getMe();
       this.userEmail = me?.email || 'unknown@mercadolibre.com.mx';
       DebugConsole.log(`Usuario: ${this.userEmail}`, 'info');
+      this.renderUserAvatar();
 
       await this.loadStatusCatalog();
       await this.loadOutboxFromStorage();
