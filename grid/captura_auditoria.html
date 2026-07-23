@@ -2527,6 +2527,7 @@ class CapturaApp {
     this.gridClient = new GridClient(this.docId);
     this.statusCatalogIndex = {};
     this.statusCatalogLoadedAt = null;
+    this.catalogAccessDenied = false;
     this.outboxRecords = [];
     this.currentEngine = null;
     this.userEmail = null;
@@ -2589,6 +2590,7 @@ class CapturaApp {
   }
 
   async loadStatusCatalog() {
+    this.catalogAccessDenied = false;
     try {
       DebugConsole.log('Cargando catálogo de estatus...', 'info');
       const data = await this.gridClient.getStateBucket('catalogo_estatus');
@@ -2618,7 +2620,14 @@ class CapturaApp {
         this.statusCatalogLoadedAt = null;
       }
     } catch (e) {
-      DebugConsole.log(`Error al cargar catálogo: ${e.message}`, 'error');
+      // 403: el usuario está autenticado en Grid pero no tiene permiso
+      // sobre ESTE documento (ACL por documento, no por login) — muy
+      // distinto de "nadie ha publicado el catálogo todavía". Se marca
+      // aparte para no decirle al operador que contacte al admin para
+      // "cargar el catálogo" cuando en realidad necesita que lo agreguen
+      // como viewer/editor del documento compartido en Grid.
+      this.catalogAccessDenied = /^403$/.test(e.message);
+      DebugConsole.log(`Error al cargar catálogo: ${e.message}${this.catalogAccessDenied ? ' (sin permiso sobre el documento)' : ''}`, 'error');
       this.statusCatalogIndex = {};
       this.statusCatalogLoadedAt = null;
     }
@@ -2673,8 +2682,13 @@ class CapturaApp {
             <div style="display: flex; align-items: flex-start; gap: 12px;">
               <div style="font-size: 20px; flex-shrink: 0;">⚠</div>
               <div style="flex: 1;">
-                <div style="font-weight: 700; color: #ffd43b; margin-bottom: 4px;">Sin catálogo</div>
-                <div style="font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4;">Contacta al administrador para que cargue el catálogo</div>
+                ${this.catalogAccessDenied ? `
+                  <div style="font-weight: 700; color: #ffd43b; margin-bottom: 4px;">Sin acceso a este documento</div>
+                  <div style="font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4;">Tu cuenta de Grid no tiene permiso sobre este documento (error 403). Pide al administrador que te agregue como colaborador — no es que falte el catálogo.</div>
+                ` : `
+                  <div style="font-weight: 700; color: #ffd43b; margin-bottom: 4px;">Sin catálogo</div>
+                  <div style="font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4;">Contacta al administrador para que cargue el catálogo</div>
+                `}
               </div>
             </div>
           </div>
