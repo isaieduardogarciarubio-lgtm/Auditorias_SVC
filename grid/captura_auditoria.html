@@ -2302,6 +2302,7 @@ class CapturaApp {
     this.docId = new URLSearchParams(location.search).get('data_doc_id') || '01KXHHVWD581MQ567XEBW8HM5B';
     this.gridClient = new GridClient(this.docId);
     this.statusCatalogIndex = {};
+    this.statusCatalogLoadedAt = null;
     this.outboxRecords = [];
     this.currentEngine = null;
     this.userEmail = null;
@@ -2330,20 +2331,36 @@ class CapturaApp {
   async loadStatusCatalog() {
     try {
       DebugConsole.log('Cargando catálogo de estatus...', 'info');
-      const catalog = await this.gridClient.getStateBucket('catalogo_estatus');
+      const data = await this.gridClient.getStateBucket('catalogo_estatus');
 
-      if (!catalog || typeof catalog !== 'object') {
+      if (!data || typeof data !== 'object') {
         DebugConsole.log('Catálogo vacío o inválido', 'warn');
         this.statusCatalogIndex = {};
+        this.statusCatalogLoadedAt = null;
         return;
       }
 
-      this.statusCatalogIndex = catalog;
-      const count = Object.keys(catalog).length;
-      DebugConsole.log(`Catálogo cargado: ${count} shipments`, 'info');
+      // Si es el formato nuevo (con index, generatedAt, etc)
+      if (data.index && typeof data.index === 'object') {
+        this.statusCatalogIndex = data.index;
+        this.statusCatalogLoadedAt = data.generatedAt ? new Date(data.generatedAt) : Date.now();
+        const count = Object.keys(data.index).length;
+        DebugConsole.log(`Catálogo cargado: ${count} shipments`, 'info');
+      } else if (Object.keys(data).length > 0) {
+        // Si es formato antiguo (objeto directo con IDs)
+        this.statusCatalogIndex = data;
+        this.statusCatalogLoadedAt = Date.now();
+        const count = Object.keys(data).length;
+        DebugConsole.log(`Catálogo cargado (formato antiguo): ${count} shipments`, 'info');
+      } else {
+        DebugConsole.log('Catálogo vacío', 'warn');
+        this.statusCatalogIndex = {};
+        this.statusCatalogLoadedAt = null;
+      }
     } catch (e) {
       DebugConsole.log(`Error al cargar catálogo: ${e.message}`, 'error');
       this.statusCatalogIndex = {};
+      this.statusCatalogLoadedAt = null;
     }
   }
 
@@ -2367,11 +2384,33 @@ class CapturaApp {
 
   renderMenu() {
     const root = document.getElementById('app-root');
+    const catalogReady = this.statusCatalogIndex && Object.keys(this.statusCatalogIndex).length > 0;
+    const catalogStatus = this.getCatalogStatus();
+
     root.innerHTML = `
       <div style="padding-bottom: 20px;">
         <h2 style="font-size: 1.5rem; font-weight: 700; margin-bottom: 16px;">Auditorías Disponibles</h2>
 
-        <div onclick="window.app.startForm('contenedor')" style="background: var(--color-surface); border-radius: var(--radius-card); padding: 20px; cursor: pointer; margin-bottom: 12px; transition: all 0.15s ease;">
+        <!-- Catalog Status -->
+        <div style="background: ${catalogReady ? '#0a1a0a' : '#1a0a0a'}; border: 1px solid ${catalogReady ? '#1a3a1a' : '#3a1a1a'}; border-radius: var(--radius-card); padding: 16px; margin-bottom: 20px;">
+          <div style="display: flex; align-items: flex-start; gap: 12px;">
+            <div style="font-size: 20px; flex-shrink: 0;">${catalogReady ? '✓' : '⚠'}</div>
+            <div style="flex: 1;">
+              <div style="font-weight: 700; color: ${catalogReady ? '#51cf66' : '#ffd43b'}; margin-bottom: 4px;">
+                ${catalogReady ? 'Catálogo cargado' : 'Sin catálogo'}
+              </div>
+              <div style="font-size: 0.85rem; color: var(--color-text-muted); line-height: 1.4;">
+                ${catalogReady ? `
+                  <div>${Object.keys(this.statusCatalogIndex).length} shipments disponibles para auditar</div>
+                  <div style="margin-top: 4px; font-size: 0.8rem; color: #888;">${catalogStatus}</div>
+                ` : 'Contacta al administrador para que cargue el catálogo'}
+              </div>
+            </div>
+          </div>
+        </div>
+
+        <!-- Start Audit Card -->
+        <div onclick="${catalogReady ? "window.app.startForm('contenedor')" : ''}" style="background: var(--color-surface); border-radius: var(--radius-card); padding: 20px; cursor: ${catalogReady ? 'pointer' : 'default'}; margin-bottom: 12px; transition: all 0.15s ease; ${!catalogReady ? 'opacity: 0.5;' : ''}">
           <div style="display: flex; align-items: center; gap: 16px;">
             <div style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--radius-pill); background: var(--color-bg); color: var(--color-text-primary); flex-shrink: 0;">
               ${Icons.svg('inbox', { size: 20 })}
@@ -2396,6 +2435,29 @@ class CapturaApp {
         ` : ''}
       </div>
     `;
+  }
+
+  getCatalogStatus() {
+    if (!this.statusCatalogLoadedAt) {
+      return 'Catálogo no cargado';
+    }
+
+    const now = new Date();
+    const loadedAt = new Date(this.statusCatalogLoadedAt);
+    const diffMs = now - loadedAt;
+    const diffHours = Math.floor(diffMs / (1000 * 60 * 60));
+    const diffMins = Math.floor(diffMs / (1000 * 60));
+
+    if (diffMins < 1) {
+      return 'Cargado hace poco';
+    } else if (diffMins < 60) {
+      return `Cargado hace ${diffMins} min`;
+    } else if (diffHours < 24) {
+      return `Cargado hace ${diffHours}h`;
+    } else {
+      const diffDays = Math.floor(diffHours / 24);
+      return `Cargado hace ${diffDays} día${diffDays === 1 ? '' : 's'}`;
+    }
   }
 
   startForm(formId) {
