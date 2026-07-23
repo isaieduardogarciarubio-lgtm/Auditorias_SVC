@@ -248,7 +248,7 @@ class FormApp {
 
     content.appendChild(grid);
     content.appendChild(this.renderSavedLogsSection());
-    content.appendChild(this.renderStatusCatalogSection());
+    // Sección del catálogo ahora se muestra integrada en "Validación de Contenedor"
     content.appendChild(this.renderPassphraseSection());
     app.appendChild(content);
   }
@@ -320,6 +320,62 @@ class FormApp {
     section.appendChild(refreshBtn);
 
     return section;
+  }
+
+  /**
+   * Versión compacta del estado del catálogo para mostrar dentro de formularios
+   * que lo requieren. Solo muestra el estado, sin botón grande — integrado al
+   * contexto del log específico.
+   */
+  renderCompactCatalogStatus() {
+    const wrap = document.createElement('div');
+    wrap.style.marginTop = 'var(--spacing-md)';
+    wrap.style.padding = 'var(--spacing-sm)';
+    wrap.style.backgroundColor = 'var(--color-surface-alt)';
+    wrap.style.borderRadius = 'var(--radius)';
+    wrap.style.display = 'flex';
+    wrap.style.justifyContent = 'space-between';
+    wrap.style.alignItems = 'center';
+    wrap.style.gap = 'var(--spacing-sm)';
+
+    const label = document.createElement('div');
+    label.style.flex = '1';
+    label.style.minWidth = '0';
+
+    const title = document.createElement('div');
+    title.style.fontSize = '0.85rem';
+    title.style.fontWeight = '500';
+    title.style.color = 'var(--color-text-primary)';
+    title.style.marginBottom = '2px';
+    title.textContent = 'Catálogo de Estatus';
+    label.appendChild(title);
+
+    const status = document.createElement('div');
+    status.style.fontSize = '0.75rem';
+    status.style.color = 'var(--color-text-muted)';
+    status.style.whiteSpace = 'nowrap';
+    status.style.overflow = 'hidden';
+    status.style.textOverflow = 'ellipsis';
+    if (this.statusCatalogError) {
+      status.textContent = `Error: ${this.statusCatalogError}`;
+    } else if (this.statusCatalogIndex) {
+      const count = Object.keys(this.statusCatalogIndex).length;
+      status.textContent = `${count} shipments · publicado ${this.formatCatalogAge(this.statusCatalogAgeMs())}`;
+    } else {
+      status.textContent = 'No cargado';
+    }
+    label.appendChild(status);
+    wrap.appendChild(label);
+
+    const refreshBtn = document.createElement('button');
+    refreshBtn.className = 'btn-icon btn-sm';
+    refreshBtn.title = 'Actualizar catálogo';
+    refreshBtn.style.flexShrink = '0';
+    refreshBtn.innerHTML = Icons.svg('refresh', { size: 16 });
+    refreshBtn.addEventListener('click', () => this.refreshCentralCatalog());
+    wrap.appendChild(refreshBtn);
+
+    return wrap;
   }
 
   /**
@@ -499,6 +555,13 @@ class FormApp {
     }
 
     app.innerHTML = '';
+
+    // Para formularios que requieren catálogo, mostrar estado compacto arriba
+    if (formConfig.requiresStatusCatalog) {
+      const compactCatalog = this.renderCompactCatalogStatus();
+      app.appendChild(compactCatalog);
+    }
+
     const container = document.createElement('div');
     container.id = 'step_container';
     app.appendChild(container);
