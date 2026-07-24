@@ -903,7 +903,6 @@ select.step-input {
     <div class="navbar-inner">
       <div style="display: flex; align-items: center; gap: var(--spacing-sm); min-width: 0;">
         <img id="navbar-logo" class="navbar-logo" alt="Logo" style="display: none;" />
-        <h1 class="navbar-title">Captura de Auditoría</h1>
       </div>
       <div style="display: flex; gap: 8px; align-items: center;">
         <span class="status-badge" id="status-badge">0 pendientes</span>
@@ -2696,12 +2695,8 @@ class CapturaApp {
     }
   }
 
-  /**
-   * Mismo logo que usa el Consolidado (mismo doc ID de Grid), para que
-   * ambas apps de Auditorías SVC compartan marca en el navbar.
-   */
   async loadHeaderLogo() {
-    const logoDocId = '01KTD4Q8GC7Y620F9F9WEXGDE4';
+    const logoDocId = '01KY8S5Z97W0YTQVTX59DDBC05';
     const objectUrl = await this.gridClient.downloadDocumentAsObjectUrl(logoDocId);
     if (objectUrl) {
       const img = document.getElementById('navbar-logo');
