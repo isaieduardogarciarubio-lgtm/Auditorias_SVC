@@ -332,6 +332,58 @@ body {
   letter-spacing: 0.03em;
 }
 
+/* Pastilla "Doca: N" del loop de Validación de Contenedor — siempre
+   visible mientras se escanea, tocable para cambiar de doca. */
+.doca-pill {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  margin-left: auto;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  color: var(--color-text-primary);
+  font-size: 0.85rem;
+  font-weight: 700;
+  cursor: pointer;
+  transition: background 0.15s ease;
+}
+.doca-pill:hover {
+  background: var(--color-surface-hover);
+}
+
+/* Flash de resultado a pantalla completa (correcto/incorrecto) — fixed
+   para que sea imposible de perder sin importar dónde esté mirando el
+   operador. Un setTimeout real en JS (no solo esta transición) controla
+   cuánto dura visible antes de seguir con el siguiente paso. */
+.audit-flash {
+  position: fixed;
+  inset: 0;
+  z-index: 200;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #ffffff;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s ease;
+}
+.audit-flash.active {
+  opacity: 1;
+  transition: opacity 0.05s ease;
+}
+.audit-flash-success {
+  background: rgba(52, 199, 89, 0.92);
+}
+.audit-flash-error {
+  background: rgba(255, 69, 58, 0.92);
+}
+.audit-flash svg {
+  width: 96px;
+  height: 96px;
+}
+
 .step-question {
   font-size: var(--font-h1);
   font-weight: 700;
@@ -1141,39 +1193,26 @@ const FORMS_CONFIG = {
   contenedor: {
     id: 'contenedor',
     title: 'Validación de Contenedor',
-    description: 'Escanea shipment y compara contra el catálogo de estatus',
+    description: 'Declara la doca y escanea shipments en bucle: correcto avanza solo, incorrecto pide foto',
     icon: 'inbox',
     requiresStatusCatalog: true,
-    fields: [
-      {
-        id: 'shipment',
-        label: '¿Cuál es el Shipment ID?',
-        type: 'scanner',
-        idType: 'shipment',
-        required: true,
-        placeholder: 'Ej. 47326091753',
-      },
-      {
-        id: 'resultado_lookup',
-        label: 'Resultado de la comparación',
-        type: 'estatus_lookup',
-        sourceField: 'shipment',
-        required: true,
-      },
-      {
-        id: 'evidencia',
-        label: 'Toma una foto de evidencia',
-        type: 'photo',
-        required: true,
-        showIf: (v) => v.resultado === 'No en contenedor',
-      },
-    ],
+    // Este log ya NO usa el wizard genérico de FormEngine (un campo por
+    // pantalla, ver clase FormEngine más abajo) — la doca se declara una
+    // vez por sesión (cambiable en cualquier momento) y el shipment se
+    // escanea en bucle continuo sin pasos intermedios ni confirmación
+    // manual. Ver clase ContenedorAuditSession.
+    fields: [],
     csvColumns: [
+      { field: 'auditoria', header: 'Auditor' },
       { field: 'ts', header: 'Fecha/Hora' },
+      { field: 'doca_auditada', header: 'Doca Auditada' },
       { field: 'shipment', header: 'Shipment ID' },
       { field: 'estatus', header: 'Estatus' },
       { field: 'optimizada', header: 'Optimizada' },
+      { field: 'mlp', header: 'MLP' },
+      { field: 'doca_catalogo', header: 'Doca Catálogo' },
       { field: 'resultado', header: 'Resultado' },
+      { field: 'motivo', header: 'Motivo' },
       { field: 'evidencia', header: 'Evidencia', type: 'photo' },
     ],
   },
@@ -1185,6 +1224,7 @@ const FORMS_CONFIG = {
 const ScanParser = (() => {
   const ID_PATTERN = /^[0-9]{6,20}$/;
   const PLATE_PATTERN = /^[A-Za-z0-9-]{5,12}$/;
+  const DOCA_PATTERN = /^[0-9]{1,6}$/;
 
   function extract(raw) {
     const text = String(raw || '').trim();
@@ -1215,12 +1255,19 @@ const ScanParser = (() => {
       return PLATE_PATTERN.test(value) ? value.toUpperCase() : null;
     }
 
+    // La doca es un código corto (1-6 dígitos), no viaja en el envoltorio
+    // JSON {id, legacy_id} de HU/Shipment, así que no aplica el chequeo de
+    // "kind" — solo el formato numérico.
+    if (expectedType === 'doca') {
+      return DOCA_PATTERN.test(value) ? value : null;
+    }
+
     if (!ID_PATTERN.test(value)) return null;
     if (expectedType && kind && kind !== expectedType) return null;
     return value;
   }
 
-  return { parse, extract, ID_PATTERN, PLATE_PATTERN };
+  return { parse, extract, ID_PATTERN, PLATE_PATTERN, DOCA_PATTERN };
 })();
 
 /**
@@ -1397,6 +1444,38 @@ class ScannerEngine {
     }
   }
 
+  /**
+   * Reconecta el mismo stream YA activo a un <video> nuevo — necesario
+   * cuando el elemento anterior se destruyó al reemplazar el DOM (p. ej.
+   * para mostrar la captura de foto de evidencia) sin volver a pedir
+   * getUserMedia. Para el motor nativo basta reasignar this.videoEl y
+   * reanudar el bucle rAF; para ZXing hay que re-invocar
+   * decodeFromStream contra el <video> nuevo, porque la llamada original
+   * capturó el <video> viejo en su propio closure — reasignar
+   * this.videoEl por fuera no le llega, y sin esto el escaneo se quedaba
+   * mudo en iOS/Safari (que siempre usa ZXing) tras la primera foto.
+   */
+  reattach(newVideoEl) {
+    this.videoEl = newVideoEl;
+    newVideoEl.srcObject = this.stream;
+    newVideoEl.setAttribute('playsinline', 'true');
+    newVideoEl.muted = true;
+    newVideoEl.play().catch(() => {});
+
+    this.running = true;
+    if (this.engine === 'native') {
+      this.startNative();
+    } else if (this.engine === 'zxing') {
+      this.zxingReader.decodeFromStream(this.stream, newVideoEl, (result, err) => {
+        if (!this.running) return;
+        if (result) {
+          console.log('[ZXing] Barcode detected:', result.getText());
+          this.handleResult(result.getText(), this.mapZxingFormat(result.getBarcodeFormat()));
+        }
+      });
+    }
+  }
+
   hasTorch() {
     if (!this.track || !this.track.getCapabilities) return false;
     const caps = this.track.getCapabilities();
@@ -1434,6 +1513,43 @@ class ScannerEngine {
     }
     this.track = null;
   }
+}
+
+/**
+ * Comprime una foto a WebP (fallback JPEG si el navegador no soporta
+ * codificar WebP en canvas) — compartida entre FormEngine (fototipo
+ * genérico) y ContenedorAuditSession (evidencia del loop de escaneo).
+ */
+function compressImageFile(file, { maxDim = 1280, quality = 0.6 } = {}) {
+  return new Promise((resolve, reject) => {
+    const url = URL.createObjectURL(file);
+    const img = new Image();
+    img.onload = () => {
+      URL.revokeObjectURL(url);
+      let { width, height } = img;
+      if (width > maxDim || height > maxDim) {
+        const scale = maxDim / Math.max(width, height);
+        width = Math.round(width * scale);
+        height = Math.round(height * scale);
+      }
+      const canvas = document.createElement('canvas');
+      canvas.width = width;
+      canvas.height = height;
+      const ctx = canvas.getContext('2d');
+      ctx.drawImage(img, 0, 0, width, height);
+      try {
+        const webp = canvas.toDataURL('image/webp', quality);
+        resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', quality));
+      } catch (e) {
+        reject(e);
+      }
+    };
+    img.onerror = () => {
+      URL.revokeObjectURL(url);
+      reject(new Error('No se pudo cargar la imagen'));
+    };
+    img.src = url;
+  });
 }
 
 /**
@@ -1976,9 +2092,15 @@ class FormEngine {
       icon: 'refresh',
       onClick: () => this.enterScanningState(field),
     });
-    const confirmBtn = this.makeButton(this.isLastStep ? 'Agregar Registro' : 'Confirmar', {
+    // confirmLabel: override opcional del campo para el texto/ícono del
+    // botón de confirmación — por defecto sigue siendo "Agregar Registro"
+    // en el último paso, "Confirmar" en los demás (comportamiento sin
+    // cambios para todo campo que no lo declare).
+    const confirmLabel = field.confirmLabel || (this.isLastStep ? 'Agregar Registro' : 'Confirmar');
+    const confirmIcon = field.confirmLabel ? 'arrowRight' : (this.isLastStep ? 'check' : 'arrowRight');
+    const confirmBtn = this.makeButton(confirmLabel, {
       primary: true,
-      icon: this.isLastStep ? 'check' : 'arrowRight',
+      icon: confirmIcon,
       iconAfter: true,
       onClick: () => {
         this.values[field.id] = text;
@@ -2033,9 +2155,11 @@ class FormEngine {
       icon: 'scan',
       onClick: () => this.enterScanningState(field),
     });
-    const nextBtn = this.makeButton(this.isLastStep ? 'Agregar Registro' : 'Continuar', {
+    const manualLabel = field.confirmLabel || (this.isLastStep ? 'Agregar Registro' : 'Continuar');
+    const manualIcon = field.confirmLabel ? 'arrowRight' : (this.isLastStep ? 'check' : 'arrowRight');
+    const nextBtn = this.makeButton(manualLabel, {
       primary: true,
-      icon: this.isLastStep ? 'check' : 'arrowRight',
+      icon: manualIcon,
       iconAfter: true,
       onClick: () => this.confirmManual(field),
     });
@@ -2273,36 +2397,8 @@ class FormEngine {
     this.setActions([retakeBtn, nextBtn]);
   }
 
-  compressImage(file, { maxDim = 1280, quality = 0.6 } = {}) {
-    return new Promise((resolve, reject) => {
-      const url = URL.createObjectURL(file);
-      const img = new Image();
-      img.onload = () => {
-        URL.revokeObjectURL(url);
-        let { width, height } = img;
-        if (width > maxDim || height > maxDim) {
-          const scale = maxDim / Math.max(width, height);
-          width = Math.round(width * scale);
-          height = Math.round(height * scale);
-        }
-        const canvas = document.createElement('canvas');
-        canvas.width = width;
-        canvas.height = height;
-        const ctx = canvas.getContext('2d');
-        ctx.drawImage(img, 0, 0, width, height);
-        try {
-          const webp = canvas.toDataURL('image/webp', quality);
-          resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', quality));
-        } catch (e) {
-          reject(e);
-        }
-      };
-      img.onerror = () => {
-        URL.revokeObjectURL(url);
-        reject(new Error('No se pudo cargar la imagen'));
-      };
-      img.src = url;
-    });
+  compressImage(file, opts) {
+    return compressImageFile(file, opts);
   }
 
   /* ====================================================================== */
@@ -2388,6 +2484,448 @@ class FormEngine {
       }
     });
     if (this.onComplete) this.onComplete({ ...this.values });
+  }
+}
+
+/**
+ * ContenedorAuditSession — auditoría rápida "contrarreloj" para
+ * Validación de Contenedor.
+ *
+ * A diferencia del wizard genérico de FormEngine (un campo por pantalla,
+ * con confirmación manual en cada paso), este log declara la doca UNA vez
+ * por sesión (cambiable en cualquier momento desde la pastilla sobre la
+ * cámara) y luego escanea shipments en bucle continuo:
+ *   - Correcto (estatus in_container Y doca coincide): flash verde,
+ *     guarda solo y vuelve a escanear de inmediato — cero taps.
+ *   - Incorrecto (estatus distinto, doca no coincide, o shipment no
+ *     encontrado en catálogo): flash rojo + motivo en pantalla, pide
+ *     foto de evidencia, guarda y vuelve a escanear — tampoco requiere
+ *     confirmación aparte de tomar la foto.
+ *
+ * El stream de cámara se pide UNA sola vez (getUserMedia) al entrar al
+ * loop; entre shipments solo se pausa/reanuda el procesamiento de frames
+ * (o se reconecta el mismo stream a un <video> nuevo si hubo que
+ * reemplazar el DOM para pedir la foto), nunca se reinicia — reiniciar
+ * getUserMedia en cada shipment metería un lag inaceptable para una
+ * auditoría contrarreloj.
+ */
+class ContenedorAuditSession {
+  constructor(app) {
+    this.app = app;
+    this.catalogIndex = app.statusCatalogIndex;
+    this.doca = null;
+    this.scanner = null;
+    this.container = null;
+    this.currentSubEngine = null; // FormEngine temporal mientras se pide/cambia la doca
+    this.inputMode = 'camera'; // 'camera' | 'manual' — cuál modo estaba activo en el loop
+    this._busy = false; // evita procesar dos detecciones mientras se resuelve la anterior
+    this.onCancel = null;
+  }
+
+  render(containerId, { onCancel } = {}) {
+    this.container = document.getElementById(containerId);
+    this.onCancel = onCancel;
+    this.promptDoca({ isChange: false });
+  }
+
+  destroy() {
+    this.stopScanner();
+  }
+
+  stopScanner() {
+    if (this.scanner) {
+      this.scanner.stop();
+      this.scanner = null;
+    }
+  }
+
+  vibrate(pattern) {
+    if (navigator.vibrate) {
+      try { navigator.vibrate(pattern); } catch (e) {}
+    }
+  }
+
+  /**
+   * "Atrás": si estamos en la pantalla de doca (nueva o "cambiar"), delega
+   * al FormEngine temporal (que decide cancelar toda la sesión, o volver
+   * al loop si era solo un cambio de doca). Si estamos en el loop de
+   * shipments, "atrás" termina la sesión completa.
+   */
+  back() {
+    if (this.currentSubEngine) {
+      this.currentSubEngine.back();
+      return;
+    }
+    this.stopScanner();
+    if (this.onCancel) this.onCancel();
+  }
+
+  /* ============================== Doca ============================== */
+
+  /**
+   * Pide la doca (primera vez o "cambiar doca") reutilizando FormEngine
+   * para un único campo tipo 'scanner' — mismo motor de cámara/ZXing/
+   * manual/confirmación que cualquier otro campo escaneable de la app,
+   * sin reimplementarlo.
+   */
+  promptDoca({ isChange }) {
+    this.stopScanner();
+
+    const docaField = {
+      id: 'doca',
+      label: '¿Qué doca auditarás?',
+      type: 'scanner',
+      idType: 'doca',
+      required: true,
+      placeholder: 'Ej. 5',
+      confirmLabel: 'Confirmar Doca',
+    };
+
+    this.container.innerHTML = '<div id="doca-form-container"></div>';
+
+    this.currentSubEngine = new FormEngine(
+      { fields: [docaField] },
+      {
+        initialValues: this.doca ? { doca: this.doca } : {},
+        onComplete: (values) => {
+          this.currentSubEngine = null;
+          this.doca = values.doca;
+          this.renderScanLoop();
+        },
+        onCancel: () => {
+          this.currentSubEngine = null;
+          if (isChange) {
+            this.renderScanLoop();
+          } else if (this.onCancel) {
+            this.onCancel();
+          }
+        },
+      }
+    );
+    this.currentSubEngine.render('doca-form-container');
+  }
+
+  /* ============================ Scan loop ============================ */
+
+  renderScanLoop() {
+    this.stopScanner();
+    this.currentSubEngine = null;
+    this.inputMode = 'camera';
+
+    this.container.innerHTML = `
+      <div class="step-screen scanner-screen">
+        <div class="step-progress-row">
+          <button type="button" class="icon-btn-plain step-back-btn" id="loop-back-btn" aria-label="Atrás">
+            ${Icons.svg('arrowLeft', { size: 28 })}
+          </button>
+          <button type="button" class="doca-pill" id="doca-pill" title="Cambiar doca">
+            ${Icons.svg('inbox', { size: 14 })}<span>Doca: ${this.doca}</span>
+          </button>
+        </div>
+        <h1 class="step-question">Escanea el shipment</h1>
+        <div class="scanner-body" id="loop-scanner-body"></div>
+        <div class="step-support" id="loop-support">Escaneando... Apunta la cámara al código.</div>
+      </div>
+      <div class="audit-flash" id="audit-flash"></div>
+    `;
+
+    document.getElementById('loop-back-btn').addEventListener('click', () => this.back());
+    document.getElementById('doca-pill').addEventListener('click', () => this.promptDoca({ isChange: true }));
+
+    this.scannerBody = document.getElementById('loop-scanner-body');
+    this.supportEl = document.getElementById('loop-support');
+    this.flashEl = document.getElementById('audit-flash');
+    this.errorTargetEl = this.scannerBody;
+
+    this.useCameraMode();
+  }
+
+  setLoopActions(children) {
+    const existing = this.container.querySelector('.step-actions');
+    if (existing) existing.remove();
+    const actions = document.createElement('div');
+    actions.className = 'step-actions';
+    children.forEach((c) => c && actions.appendChild(c));
+    this.container.appendChild(actions);
+  }
+
+  makeButton(label, { primary, icon, iconAfter, onClick } = {}) {
+    const btn = document.createElement('button');
+    btn.type = 'button';
+    btn.className = `btn ${primary ? 'btn-primary' : 'btn-secondary'}`;
+    const iconSvg = icon ? Icons.svg(icon, { size: 16 }) : '';
+    btn.innerHTML = iconAfter ? `<span>${label}</span>${iconSvg}` : `${iconSvg}<span>${label}</span>`;
+    if (onClick) btn.addEventListener('click', onClick);
+    return btn;
+  }
+
+  /**
+   * Inserta el <video> en el DOM. Si ya había un stream vivo (venimos de
+   * guardar una foto de evidencia, no de arrancar la sesión), lo
+   * reconecta al <video> nuevo sin volver a pedir permisos ni reiniciar
+   * getUserMedia — solo startCamera() (primera vez, o tras un fallo)
+   * pide la cámara de verdad.
+   */
+  showCameraViewport() {
+    this.scannerBody.innerHTML = `
+      <div class="scanner-viewport">
+        <video class="scanner-video" playsinline muted></video>
+        <div class="scanner-frame"><span class="scanner-line"></span></div>
+      </div>
+    `;
+    const video = this.scannerBody.querySelector('.scanner-video');
+    if (this.scanner && this.scanner.stream) {
+      this.scanner.reattach(video);
+    }
+  }
+
+  useCameraMode() {
+    this.inputMode = 'camera';
+    this.supportEl.textContent = 'Escaneando... Apunta la cámara al código.';
+    this.supportEl.classList.remove('error');
+    this.showCameraViewport();
+    this.setLoopActions([
+      this.makeButton('Entrada Manual', { icon: 'keyboard', onClick: () => this.enterManualShipment() }),
+    ]);
+    if (!this.scanner) this.startCamera();
+  }
+
+  async startCamera() {
+    if (!ScannerEngine.isSupported()) {
+      this.enterCameraUnavailable();
+      return;
+    }
+    const video = this.scannerBody.querySelector('.scanner-video');
+    this.scanner = new ScannerEngine();
+    try {
+      await this.scanner.start(video, (text) => this.onShipmentScanned(text));
+    } catch (err) {
+      this.enterCameraUnavailable();
+    }
+  }
+
+  enterCameraUnavailable() {
+    this.supportEl.textContent = 'Cámara no disponible — usa entrada manual.';
+    this.supportEl.classList.add('error');
+    this.enterManualShipment();
+  }
+
+  enterManualShipment(note) {
+    if (this.scanner) this.scanner.pause(); // mantiene el stream vivo para volver rápido a cámara
+    this.inputMode = 'manual';
+
+    this.scannerBody.innerHTML = '';
+    const inputWrap = document.createElement('div');
+    inputWrap.className = 'step-input-wrap';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'step-input';
+    input.placeholder = 'Escribe el Shipment ID';
+    inputWrap.appendChild(input);
+    this.scannerBody.appendChild(inputWrap);
+    this.errorTargetEl = inputWrap;
+
+    this.supportEl.textContent = note || '';
+    this.supportEl.classList.toggle('error', !!note);
+
+    const confirmManual = () => {
+      const raw = input.value.trim();
+      if (!raw) return;
+      const parsed = ScanParser.parse(raw, 'shipment');
+      if (!parsed) {
+        this.enterManualShipment('Formato inválido. Debe ser el Shipment ID (solo dígitos).');
+        return;
+      }
+      input.value = '';
+      this.processShipment(parsed);
+    };
+
+    input.addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') {
+        e.preventDefault();
+        confirmManual();
+      }
+    });
+
+    this.setLoopActions([
+      this.makeButton('Usar cámara', { icon: 'scan', onClick: () => this.useCameraMode() }),
+      this.makeButton('Confirmar', { primary: true, icon: 'arrowRight', iconAfter: true, onClick: confirmManual }),
+    ]);
+    setTimeout(() => input.focus(), 60);
+  }
+
+  /**
+   * Flash a pantalla completa (fixed, cubre todo el viewport) para que el
+   * resultado sea imposible de perder aunque el operador no esté mirando
+   * fijo la cámara. Usa un setTimeout real (no solo una animación CSS)
+   * para que el flash quede pintado al menos un frame ANTES de continuar
+   * — si se reemplaza el DOM en el mismo tick, el navegador nunca llega
+   * a pintarlo.
+   */
+  flash(type, durationMs = 550) {
+    return new Promise((resolve) => {
+      if (!this.flashEl) { resolve(); return; }
+      this.flashEl.className = `audit-flash audit-flash-${type} active`;
+      this.flashEl.innerHTML = Icons.svg(type === 'success' ? 'checkCircle' : 'close', { size: 96 });
+      setTimeout(() => {
+        this.flashEl.classList.remove('active');
+        resolve();
+      }, durationMs);
+    });
+  }
+
+  /**
+   * Procesa un shipment escaneado/tecleado: compara contra el catálogo
+   * (estatus + doca) y decide correcto/incorrecto. Solo se detiene a
+   * pedir foto en el caso incorrecto — el caso correcto guarda y vuelve
+   * a escanear de inmediato (auditoría contrarreloj).
+   */
+  async processShipment(shipment) {
+    if (this._busy) return;
+    this._busy = true;
+    if (this.scanner) this.scanner.pause();
+
+    const entry = this.catalogIndex[shipment];
+    const estatusOk = !!entry && String(entry.estatus || '').trim().toLowerCase() === 'in_container';
+    const catalogDoca = entry && entry.doca != null ? String(entry.doca).trim() : '';
+    const docaOk = !catalogDoca || catalogDoca === String(this.doca).trim();
+
+    let resultado;
+    let motivo;
+    if (!entry) {
+      resultado = 'Incorrecto';
+      motivo = 'Shipment no encontrado en el catálogo';
+    } else if (estatusOk && docaOk) {
+      resultado = 'Correcto';
+      motivo = '';
+    } else {
+      resultado = 'Incorrecto';
+      const reasons = [];
+      if (!estatusOk) reasons.push(`Estatus incorrecto (${entry.estatus || 'desconocido'})`);
+      if (!docaOk) reasons.push(`Doca incorrecta (catálogo: ${catalogDoca}, auditada: ${this.doca})`);
+      motivo = reasons.join(' · ');
+    }
+
+    const record = {
+      shipment,
+      estatus: entry ? entry.estatus || '' : '',
+      optimizada: entry ? entry.optimizada || '' : '',
+      mlp: entry ? entry.mlp || '' : '',
+      doca_auditada: this.doca,
+      doca_catalogo: catalogDoca,
+      resultado,
+      motivo,
+      evidencia: '',
+    };
+
+    if (resultado === 'Correcto') {
+      this.vibrate(60);
+      await this.flash('success', 550);
+      await this.saveRecord(record);
+      this._busy = false;
+      this.resumeForNextScan();
+    } else {
+      this.vibrate([40, 60, 40]);
+      await this.flash('error', 550);
+      await this.captureEvidence(record);
+      await this.saveRecord(record);
+      this._busy = false;
+      this.resumeForNextScan();
+    }
+  }
+
+  onShipmentScanned(text) {
+    // Guarda contra una carrera rara: si el operador cambió a entrada
+    // manual mientras getUserMedia todavía estaba pendiente, la promesa
+    // de start() puede resolver y arrancar el bucle de detección después
+    // de que ya cambiamos de modo — ignorar cualquier detección que no
+    // corresponda al modo cámara evita un flujo confuso superpuesto.
+    if (this._busy || this.inputMode !== 'camera') return;
+    const parsed = ScanParser.parse(text, 'shipment');
+    if (!parsed) {
+      this.vibrate(40);
+      this.supportEl.textContent = 'Código no reconocido como Shipment ID.';
+      this.supportEl.classList.add('error');
+      setTimeout(() => {
+        if (this.inputMode !== 'camera') return;
+        this.supportEl.classList.remove('error');
+        this.supportEl.textContent = 'Escaneando... Apunta la cámara al código.';
+      }, 900);
+      return;
+    }
+    this.processShipment(parsed);
+  }
+
+  resumeForNextScan() {
+    if (this.inputMode === 'manual') {
+      this.enterManualShipment();
+    } else {
+      this.showCameraViewport();
+      if (!this.scanner) this.startCamera();
+    }
+  }
+
+  /**
+   * Pide la foto de evidencia (solo caso incorrecto). Muestra el motivo
+   * en pantalla al mismo tiempo, tal como se pidió: el operador ve por
+   * qué está mal mientras toma la foto, no después.
+   */
+  captureEvidence(record) {
+    return new Promise((resolve) => {
+      this.scannerBody.innerHTML = `
+        <div class="empty-state" style="text-align: left;">
+          <div style="display: flex; align-items: center; gap: 8px; color: var(--color-error); font-weight: 700; margin-bottom: 8px;">
+            ${Icons.svg('alertCircle', { size: 20 })}<span>Incorrecto</span>
+          </div>
+          <p style="color: var(--color-text-muted); margin-bottom: 16px;">${record.motivo}</p>
+          <button type="button" class="photo-dropzone">
+            <span>${Icons.svg('camera', { size: 30 })}</span>
+            <span class="photo-dropzone-label">Tomar foto de evidencia</span>
+          </button>
+          <input type="file" accept="image/*" capture="environment" class="photo-input" hidden />
+          <input type="file" accept="image/*" class="photo-input-gallery" hidden />
+        </div>
+      `;
+      this.supportEl.textContent = `Shipment ${record.shipment}`;
+      this.supportEl.classList.remove('error');
+
+      const dropzone = this.scannerBody.querySelector('.photo-dropzone');
+      const cameraInput = this.scannerBody.querySelector('.photo-input');
+      const galleryInput = this.scannerBody.querySelector('.photo-input-gallery');
+      dropzone.addEventListener('click', () => cameraInput.click());
+
+      const onFile = async (input) => {
+        const file = input.files && input.files[0];
+        if (!file) return;
+        this.supportEl.textContent = 'Procesando imagen...';
+        try {
+          record.evidencia = await compressImageFile(file, { maxDim: 1280, quality: 0.6 });
+          this.vibrate(30);
+          resolve();
+        } catch (e) {
+          this.supportEl.textContent = 'No se pudo procesar la imagen. Intenta de nuevo.';
+          this.supportEl.classList.add('error');
+        }
+      };
+      cameraInput.addEventListener('change', () => onFile(cameraInput));
+      galleryInput.addEventListener('change', () => onFile(galleryInput));
+
+      this.setLoopActions([
+        this.makeButton('Elegir de galería', { icon: 'image', onClick: () => galleryInput.click() }),
+      ]);
+    });
+  }
+
+  async saveRecord(record) {
+    const ts = new Date().toISOString();
+    const uid = RecordStore.genUid('contenedor');
+    const fullRecord = { uid, ts, ...record, auditoria: this.app.userEmail };
+    try {
+      await this.app.persistRecord('contenedor', fullRecord);
+    } catch (e) {
+      DebugConsole.log(`Error al guardar: ${e.message}`, 'error');
+      this.app.showToast('Error al guardar el registro', 'error');
+    }
   }
 }
 
@@ -2814,7 +3352,7 @@ class CapturaApp {
             </div>
             <div style="flex: 1;">
               <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 4px;">Validación de Contenedor</h3>
-              <p style="font-size: 0.88rem; color: var(--color-text-muted);">Escanea shipment y compara contra el catálogo de estatus</p>
+              <p style="font-size: 0.88rem; color: var(--color-text-muted);">Declara la doca y escanea shipments en bucle rápido</p>
             </div>
             <div style="color: var(--color-text-muted); flex-shrink: 0;">
               ${Icons.svg('arrowRight', { size: 20 })}
@@ -2873,7 +3411,7 @@ class CapturaApp {
         const statusClass = entry.synced ? 'status-success' : 'status-warn';
         const statusIcon = Icons.svg(entry.synced ? 'checkCircle' : 'infoCircle', { size: 12 });
         const statusLabel = entry.synced ? 'Sincronizado' : 'Pendiente';
-        const resultClass = entry.resultado === 'En contenedor' ? 'status-success' : 'status-error';
+        const resultClass = entry.resultado === 'Correcto' ? 'status-success' : 'status-error';
 
         return `
           <div style="background: var(--color-surface); border-radius: 8px; padding: 12px 14px; margin-bottom: 8px; display: flex; align-items: center; justify-content: space-between; gap: 12px;">
@@ -2930,6 +3468,17 @@ class CapturaApp {
     const root = document.getElementById('app-root');
     root.innerHTML = '<div id="form-container"></div>';
 
+    // "Validación de Contenedor" ya no usa el wizard genérico de
+    // FormEngine (doca persistente + bucle de escaneo, ver
+    // ContenedorAuditSession) — FormEngine sigue disponible tal cual
+    // para cualquier log futuro que sí encaje en el patrón de un-campo-
+    // por-pantalla.
+    if (formId === 'contenedor') {
+      this.currentEngine = new ContenedorAuditSession(this);
+      this.currentEngine.render('form-container', { onCancel: () => this.renderMenu() });
+      return;
+    }
+
     this.currentEngine = new FormEngine(formConfig, {
       catalogIndex: this.statusCatalogIndex,
       onComplete: (values) => this.onFormComplete(formId, values),
@@ -2939,44 +3488,46 @@ class CapturaApp {
     this.currentEngine.render('form-container');
   }
 
+  /**
+   * Persiste un registro ya armado (con uid/ts/auditoria) en la cola
+   * offline + intenta sincronizar de inmediato si hay conexión. No
+   * navega a ningún lado — eso lo decide quien llama (el wizard genérico
+   * vuelve al menú tras un único registro; el loop de Contenedor sigue
+   * escaneando sin salir de la pantalla).
+   */
+  async persistRecord(formId, record) {
+    await RecordStore.put(record.uid, formId, record);
+    this.outboxRecords.push(record);
+    this.updatePendingBadge();
+
+    // Historial del dispositivo (independiente de la cola de sync)
+    await RecordStore.addHistory({
+      uid: record.uid,
+      ts: record.ts,
+      formId,
+      shipment: record.shipment,
+      resultado: record.resultado,
+      synced: false,
+    });
+
+    DebugConsole.log(`Registro guardado localmente (${record.uid})`, 'info');
+
+    if (navigator.onLine) {
+      await this.flushOutbox();
+    } else {
+      this.showToast('Guardado local — se sincronizará al reconectar', 'info');
+    }
+  }
+
   async onFormComplete(formId, values) {
     try {
       DebugConsole.log('Procesando registro...', 'info');
 
       const ts = new Date().toISOString();
       const uid = RecordStore.genUid(formId);
+      const record = { uid, ts, ...values, auditoria: this.userEmail };
 
-      const record = {
-        uid,
-        ts,
-        ...values,
-        auditoria: this.userEmail,
-      };
-
-      // Store locally
-      await RecordStore.put(uid, formId, record);
-      this.outboxRecords.push(record);
-      this.updatePendingBadge();
-
-      // Historial del dispositivo (independiente de la cola de sync)
-      await RecordStore.addHistory({
-        uid,
-        ts,
-        formId,
-        shipment: record.shipment,
-        resultado: record.resultado,
-        synced: false,
-      });
-
-      DebugConsole.log(`Registro guardado localmente (${uid})`, 'info');
-
-      // Try to sync immediately if online
-      if (navigator.onLine) {
-        await this.flushOutbox();
-      } else {
-        this.showToast('Guardado local — se sincronizará al reconectar', 'info');
-      }
-
+      await this.persistRecord(formId, record);
       this.renderMenu();
     } catch (e) {
       DebugConsole.log(`Error al guardar: ${e.message}`, 'error');

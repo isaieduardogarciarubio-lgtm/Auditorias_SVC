@@ -654,14 +654,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         </div>
       </div>
 
-      <label>Archivo CSV (ID, ESTATUS, OPTIMIZADA)</label>
+      <label>Archivo CSV (ID, ESTATUS, OPTIMIZADA, DOCA, MLP)</label>
       <div class="drop-zone" id="dropZone">
         <input type="file" id="fileInput" accept=".csv">
         <div class="drop-icon">
           <svg width="28" height="28" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="12" y1="18" x2="12" y2="12"/><line x1="9" y1="15" x2="15" y2="15"/></svg>
         </div>
         <div class="drop-label">Arrastra el CSV del catálogo aquí</div>
-        <div class="drop-hint">CSV con columnas: ID, ESTATUS, OPTIMIZADA</div>
+        <div class="drop-hint">CSV con columnas: ID, ESTATUS, OPTIMIZADA, DOCA, MLP</div>
         <div class="drop-filename" id="dropFilename"></div>
       </div>
 
@@ -1146,9 +1146,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         const idCol = headers.find((h) => h.trim().toLowerCase() === 'id');
         const estatusCol = headers.find((h) => h.trim().toLowerCase() === 'estatus');
         const optimizadaCol = headers.find((h) => h.trim().toLowerCase() === 'optimizada');
+        // DOCA es la 4ta columna: la Captura la usa para comparar contra la
+        // doca que declaró el operador (validación de "doca equivocada").
+        // MLP (compañía de envío) es la 5ta, igual que OPTIMIZADA: solo
+        // informativa, no se valida contra nada.
+        const docaCol = headers.find((h) => h.trim().toLowerCase() === 'doca');
+        const mlpCol = headers.find((h) => h.trim().toLowerCase() === 'mlp');
 
         if (!idCol || !estatusCol) {
-          this.showAlert('uploadAlert', 'error', 'Columnas requeridas: ID, ESTATUS, OPTIMIZADA');
+          this.showAlert('uploadAlert', 'error', 'Columnas requeridas: ID, ESTATUS, OPTIMIZADA, DOCA, MLP');
+          return;
+        }
+        if (!docaCol) {
+          this.showAlert('uploadAlert', 'error', 'Falta la columna DOCA — necesaria para validar la doca en Captura');
           return;
         }
 
@@ -1159,6 +1169,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           index[id] = {
             estatus: (r[estatusCol] || '').trim(),
             optimizada: optimizadaCol ? (r[optimizadaCol] || '').trim() : '',
+            doca: (r[docaCol] || '').trim(),
+            mlp: mlpCol ? (r[mlpCol] || '').trim() : '',
           };
         });
 
@@ -1414,12 +1426,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       let good = 0, bad = 0;
 
       if (this.currentLog === 'contenedor') {
-        good = records.filter(r => r.resultado === 'En contenedor').length;
-        bad = records.filter(r => r.resultado === 'No en contenedor').length;
+        good = records.filter(r => r.resultado === 'Correcto').length;
+        bad = records.filter(r => r.resultado === 'Incorrecto').length;
 
         this.addKpiCard(container, total.toString(), 'Total');
-        this.addKpiCard(container, good.toString(), 'En contenedor');
-        this.addKpiCard(container, bad.toString(), 'No en contenedor');
+        this.addKpiCard(container, good.toString(), 'Correcto');
+        this.addKpiCard(container, bad.toString(), 'Incorrecto');
       }
     }
 
@@ -1506,12 +1518,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
     buildResultadoChart(records) {
       const counts = this.countByField(records, 'resultado');
+      // Color por etiqueta explícita (no por posición): con colores fijos
+      // por índice, si el primer registro procesado resultaba "Incorrecto"
+      // el gráfico lo pintaba con el color de acento (semánticamente
+      // "bueno"), según el orden en que aparecieran los datos.
+      const colorByLabel = { Correcto: '#00D689', Incorrecto: '#FF5C6C' };
+      const labels = Object.keys(counts);
+      const colors = labels.map(l => colorByLabel[l] || '#4A4A4A');
 
       const data = [{
-        labels: Object.keys(counts),
+        labels,
         values: Object.values(counts),
         type: 'pie',
-        marker: { colors: ['#FFD100', '#4A4A4A'] },
+        marker: { colors },
       }];
 
       const layout = {
@@ -1583,7 +1602,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           const value = record[col.field] || '';
 
           if (col.field === 'resultado') {
-            td.className = value === 'En contenedor' ? 'status-good' : 'status-critical';
+            td.className = value === 'Correcto' ? 'status-good' : 'status-critical';
             td.textContent = value;
           } else if (isPhotoField(col.field)) {
             // La foto se ve con la acción "Ver fotos"; aquí solo un indicador.
@@ -1939,10 +1958,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       csvColumns: [
         { field: 'auditoria', header: 'Auditor' },
         { field: 'ts', header: 'Fecha/Hora' },
+        { field: 'doca_auditada', header: 'Doca Auditada' },
         { field: 'shipment', header: 'Shipment ID' },
         { field: 'estatus', header: 'Estatus' },
         { field: 'optimizada', header: 'Optimizada' },
+        { field: 'mlp', header: 'MLP' },
+        { field: 'doca_catalogo', header: 'Doca Catálogo' },
         { field: 'resultado', header: 'Resultado' },
+        { field: 'motivo', header: 'Motivo' },
         { field: 'evidencia', header: 'Evidencia' },
       ],
       fields: [{ type: 'photo', id: 'evidencia' }],
