@@ -166,7 +166,21 @@
 </div>
 
 <div class="card">
-  <h2>4. Consola de depuración</h2>
+  <h2>4. Asociar documento ya subido a la carpeta (post-upload)</h2>
+  <div class="subtitle" style="margin-bottom:12px;">
+    Los intentos del paso 3 subieron el archivo (200/201) pero NINGUNO quedó dentro de la carpeta —
+    el documento existe, solo que fuera. Esta sección toma ese <code>doc_id</code> ya existente y prueba
+    rutas de <b>asociación</b> (en vez de upload) para meterlo a la carpeta después de creado.
+  </div>
+  <label>doc_id ya subido a asociar (se autocompleta con el último intento del paso 3)</label>
+  <input type="text" id="assoc-doc-id" placeholder="01KYFTV4Y2YJRS3S7RXDXRNK61">
+  <button id="btn-assoc" disabled>Probar rutas de asociación (todas las candidatas)</button>
+  <div id="assoc-attempts"></div>
+  <div class="result-box" id="assoc-result"></div>
+</div>
+
+<div class="card">
+  <h2>5. Consola de depuración</h2>
   <button class="secondary" id="btn-copy-log">Copiar log</button>
   <button class="secondary" id="btn-clear-log">Limpiar</button>
   <div id="console"></div>
@@ -489,6 +503,14 @@ document.getElementById('btn-upload-in-folder').addEventListener('click', async 
     row.appendChild(tag);
   });
 
+  // Guarda el último doc_id subido (aunque haya quedado fuera de la carpeta)
+  // para poder probar rutas de asociación post-upload en la sección 4.
+  const lastUpload = attemptResults[attemptResults.length - 1] || attemptResults[0];
+  if (lastUpload && lastUpload.docId) {
+    document.getElementById('assoc-doc-id').value = lastUpload.docId;
+    document.getElementById('btn-assoc').disabled = false;
+  }
+
   const winner = trulyInFolder[0];
 
   if (winner) {
@@ -520,7 +542,193 @@ document.getElementById('btn-upload-in-folder').addEventListener('click', async 
   }
 });
 
-log('App de prueba lista. Paso 1: verifica sesión. Paso 2: crea la carpeta. Paso 3: sube una foto de prueba.', 'info');
+document.getElementById('assoc-doc-id').addEventListener('input', (e) => {
+  document.getElementById('btn-assoc').disabled = !e.target.value.trim() || !discoveredFolderId;
+});
+
+/* ============ 4. Asociar documento existente a la carpeta ============ */
+
+// El intento anidado del paso 3 (POST /api/v1/folders/{id}/documents con
+// FormData de archivo) devolvió 422 "Invalid values in body object." — un
+// error de validación de CONTENIDO, distinto del "file: Field required" que
+// dio el candidato de creación de carpeta vía /api/v1/documents con
+// type:folder. Eso sugiere que el endpoint espera un body JSON que
+// REFERENCIE un doc_id ya existente, no un archivo crudo. Probamos esa
+// hipótesis con varios nombres de campo y varios endpoints/verbos plausibles.
+function associationCandidates(folderId, docId, currentDocIds) {
+  return [
+    {
+      label: `POST /api/v1/folders/${folderId}/documents {doc_id}`,
+      url: `${location.origin}/api/v1/folders/${folderId}/documents`,
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ doc_id: docId }),
+      },
+    },
+    {
+      label: `POST /api/v1/folders/${folderId}/documents {document_id}`,
+      url: `${location.origin}/api/v1/folders/${folderId}/documents`,
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ document_id: docId }),
+      },
+    },
+    {
+      label: `POST /api/v1/folders/${folderId}/documents {id}`,
+      url: `${location.origin}/api/v1/folders/${folderId}/documents`,
+      init: {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ id: docId }),
+      },
+    },
+    {
+      label: `PATCH /api/v1/folders/${folderId}/documents/${docId} (sin body)`,
+      url: `${location.origin}/api/v1/folders/${folderId}/documents/${docId}`,
+      init: { method: 'PATCH', credentials: 'include' },
+    },
+    {
+      label: `PUT /api/v1/folders/${folderId}/documents/${docId} (sin body)`,
+      url: `${location.origin}/api/v1/folders/${folderId}/documents/${docId}`,
+      init: { method: 'PUT', credentials: 'include' },
+    },
+    {
+      label: `PATCH /api/v1/documents/${docId} {folder_id}`,
+      url: `${location.origin}/api/v1/documents/${docId}`,
+      init: {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ folder_id: folderId }),
+      },
+    },
+    {
+      label: `PUT /api/v1/documents/${docId} {folder_id}`,
+      url: `${location.origin}/api/v1/documents/${docId}`,
+      init: {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ folder_id: folderId }),
+      },
+    },
+    {
+      label: `PATCH /api/v1/folders/${folderId} {doc_ids: [...actual, doc_id]}`,
+      url: `${location.origin}/api/v1/folders/${folderId}`,
+      init: {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ doc_ids: [...(currentDocIds || []), docId] }),
+      },
+    },
+    {
+      label: `PUT /api/v1/folders/${folderId} {doc_ids: [...actual, doc_id]}`,
+      url: `${location.origin}/api/v1/folders/${folderId}`,
+      init: {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json' },
+        credentials: 'include',
+        body: JSON.stringify({ doc_ids: [...(currentDocIds || []), docId] }),
+      },
+    },
+  ];
+}
+
+document.getElementById('btn-assoc').addEventListener('click', async () => {
+  const docId = document.getElementById('assoc-doc-id').value.trim();
+  if (!docId || !discoveredFolderId) return;
+
+  const attemptsEl = document.getElementById('assoc-attempts');
+  const resultBox = document.getElementById('assoc-result');
+  attemptsEl.innerHTML = '';
+  resultBox.className = 'result-box show pending';
+  resultBox.textContent = 'Probando rutas de asociación...';
+
+  log('Leyendo doc_ids de la carpeta ANTES de asociar...', 'info');
+  const docIdsBefore = await getFolderDocIds(discoveredFolderId);
+  log(`doc_ids antes: ${JSON.stringify(docIdsBefore)}`, 'info');
+
+  const candidates = associationCandidates(discoveredFolderId, docId, docIdsBefore);
+  const attemptResults = [];
+
+  for (const candidate of candidates) {
+    const row = document.createElement('div');
+    row.className = 'attempt-summary';
+    row.innerHTML = `<span class="dot"></span><span>${candidate.label}</span>`;
+    attemptsEl.appendChild(row);
+    const dot = row.querySelector('.dot');
+
+    log(`Probando: ${candidate.label}`, 'info');
+    try {
+      const res = await fetchWithTimeout(candidate.url, candidate.init);
+      const desc = await describeResponse(res);
+      if (desc.ok) {
+        dot.classList.add('ok');
+        row.innerHTML += ` — <span style="color:var(--success)">${desc.status} OK</span>`;
+        log(`✓ ${candidate.label} → ${desc.status}: ${desc.bodyText.slice(0, 300)}`, 'ok');
+        attemptResults.push({ candidate, raw: desc.bodyJson });
+      } else {
+        dot.classList.add('fail');
+        row.innerHTML += ` — <span style="color:var(--error)">${desc.status}</span>`;
+        log(`✗ ${candidate.label} → ${desc.status}: ${desc.bodyText.slice(0, 200)}`, 'fail');
+      }
+    } catch (e) {
+      dot.classList.add('fail');
+      row.innerHTML += ` — <span style="color:var(--error)">error: ${e.message}</span>`;
+      log(`✗ ${candidate.label} → excepción: ${e.message}`, 'fail');
+    }
+  }
+
+  log('Releyendo doc_ids de la carpeta DESPUÉS de asociar...', 'info');
+  const docIdsAfter = await getFolderDocIds(discoveredFolderId);
+  log(`doc_ids después: ${JSON.stringify(docIdsAfter)}`, 'info');
+
+  const trulyInFolder = docIdsAfter && docIdsAfter.includes(docId);
+
+  attemptResults.forEach((a) => {
+    const row = attemptsEl.children[candidates.findIndex((c) => c === a.candidate)];
+    if (!row) return;
+    const tag = document.createElement('span');
+    tag.style.marginLeft = '6px';
+    tag.style.fontWeight = '700';
+    // No podemos saber CUÁL intento específico lo logró si varios devuelven
+    // 200 (solo el último exitoso importaría), así que si trulyInFolder es
+    // true marcamos el resultado a nivel global en el resultBox, no por fila.
+    tag.style.color = 'var(--text-muted)';
+    tag.textContent = '200/201 (ver veredicto abajo)';
+    row.appendChild(tag);
+  });
+
+  if (trulyInFolder) {
+    resultBox.className = 'result-box show ok';
+    resultBox.textContent =
+      `✓ CONFIRMADO: doc_id ${docId} ahora aparece en la carpeta ${discoveredFolderId}.\n` +
+      `(Si más de una candidata devolvió 200/201 arriba, revisa la consola en orden — la ÚLTIMA que respondió ok ` +
+      `antes de este cambio es la más probable responsable; considera re-probar candidatas una por una con "Limpiar" ` +
+      `entre cada corrida para aislar cuál específicamente funciona.)\n\n` +
+      `doc_ids antes: ${JSON.stringify(docIdsBefore)}\n` +
+      `doc_ids después: ${JSON.stringify(docIdsAfter)}`;
+    log(`CONFIRMADO: doc_id ${docId} quedó asociado a la carpeta`, 'ok');
+  } else {
+    resultBox.className = 'result-box show fail';
+    resultBox.textContent =
+      `✗ Ninguna ruta de asociación logró meter doc_id ${docId} a la carpeta (doc_ids no cambió).\n\n` +
+      `doc_ids antes: ${JSON.stringify(docIdsBefore)}\n` +
+      `doc_ids después: ${JSON.stringify(docIdsAfter)}\n\n` +
+      `Si TODAS estas rutas también fallaron, es evidencia fuerte de que la Folders API de Grid, tal como está ` +
+      `expuesta hoy en este entorno, no soporta asociar documentos a carpetas desde el cliente (solo lectura/creación ` +
+      `de carpetas vacías) — valdría la pena preguntarle directo al equipo de Grid en vez de seguir adivinando rutas.`;
+    log('Ninguna ruta de asociación funcionó', 'fail');
+  }
+});
+
+log('App de prueba lista. Paso 1: verifica sesión. Paso 2: crea la carpeta. Paso 3: sube una foto de prueba. Paso 4: prueba asociar ese doc_id ya subido a la carpeta.', 'info');
 </script>
 </body>
 </html>
