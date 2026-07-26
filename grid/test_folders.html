@@ -373,7 +373,7 @@ document.getElementById('photo-file').addEventListener('change', (e) => {
 // hay contrato documentado de cuál usa Grid internamente.
 function uploadInFolderCandidates(file, folderId) {
   const fieldNames = ['folder_id', 'parent_id', 'parent_folder_id', 'folderId'];
-  return fieldNames.map((fieldName) => {
+  const formDataAttempts = fieldNames.map((fieldName) => {
     const fd = new FormData();
     fd.append('file', file, file.name);
     fd.append('title', file.name);
@@ -386,6 +386,36 @@ function uploadInFolderCandidates(file, folderId) {
       init: { method: 'POST', credentials: 'include', body: fd },
     };
   });
+
+  // Candidato adicional: subir al sub-recurso de la carpeta directamente
+  // (patrón REST anidado), en vez de pasar un campo de asociación en el
+  // FormData del endpoint plano de documentos.
+  const nestedFd = new FormData();
+  nestedFd.append('file', file, file.name);
+  nestedFd.append('title', file.name);
+  nestedFd.append('description', 'Prueba de carpeta — Auditorías SVC');
+  nestedFd.append('visibility', 'public');
+  const nestedAttempt = {
+    label: `POST /api/v1/folders/${folderId}/documents (FormData, sin campo extra)`,
+    url: `${location.origin}/api/v1/folders/${folderId}/documents`,
+    init: { method: 'POST', credentials: 'include', body: nestedFd },
+  };
+
+  return [...formDataAttempts, nestedAttempt];
+}
+
+/**
+ * La única forma confiable de saber si un upload quedó DENTRO de la
+ * carpeta: releer la carpeta (que expone doc_ids en su respuesta, visto
+ * en el paso 2) y comparar contra el conjunto de doc_ids que había antes
+ * de subir. Un 200/201 en el upload no prueba nada por sí solo si Grid
+ * ignora el campo de asociación en silencio.
+ */
+async function getFolderDocIds(folderId) {
+  const res = await fetchWithTimeout(`${location.origin}/api/v1/folders/${folderId}`, { credentials: 'include' });
+  if (!res.ok) return null;
+  const body = await res.json().catch(() => null);
+  return body && Array.isArray(body.doc_ids) ? body.doc_ids : null;
 }
 
 document.getElementById('btn-upload-in-folder').addEventListener('click', async () => {
@@ -399,8 +429,12 @@ document.getElementById('btn-upload-in-folder').addEventListener('click', async 
   resultBox.className = 'result-box show pending';
   resultBox.textContent = 'Probando rutas candidatas...';
 
+  log('Leyendo doc_ids de la carpeta ANTES de subir...', 'info');
+  const docIdsBefore = await getFolderDocIds(discoveredFolderId);
+  log(`doc_ids antes: ${JSON.stringify(docIdsBefore)}`, 'info');
+
   const candidates = uploadInFolderCandidates(file, discoveredFolderId);
-  let winner = null;
+  const attemptResults = [];
 
   for (const candidate of candidates) {
     const row = document.createElement('div');
@@ -414,10 +448,11 @@ document.getElementById('btn-upload-in-folder').addEventListener('click', async 
       const res = await fetchWithTimeout(candidate.url, candidate.init, 30000);
       const desc = await describeResponse(res);
       if (desc.ok) {
+        const docId = desc.bodyJson?.doc_id || desc.bodyJson?.id || null;
         dot.classList.add('ok');
-        row.innerHTML += ` — <span style="color:var(--success)">${desc.status} OK</span>`;
-        log(`✓ ${candidate.label} → ${desc.status}: ${desc.bodyText.slice(0, 300)}`, 'ok');
-        if (!winner) winner = { candidate, raw: desc.bodyJson };
+        row.innerHTML += ` — <span style="color:var(--success)">${desc.status} OK, doc_id=${docId}</span>`;
+        log(`✓ ${candidate.label} → ${desc.status}, doc_id=${docId}: ${desc.bodyText.slice(0, 200)}`, 'ok');
+        attemptResults.push({ candidate, docId, raw: desc.bodyJson });
       } else {
         dot.classList.add('fail');
         row.innerHTML += ` — <span style="color:var(--error)">${desc.status}</span>`;
@@ -430,15 +465,54 @@ document.getElementById('btn-upload-in-folder').addEventListener('click', async 
     }
   }
 
+  log('Releyendo doc_ids de la carpeta DESPUÉS de subir...', 'info');
+  const docIdsAfter = await getFolderDocIds(discoveredFolderId);
+  log(`doc_ids después: ${JSON.stringify(docIdsAfter)}`, 'info');
+
+  // Verificación real: ¿alguno de los doc_id recién subidos aparece en la
+  // carpeta? En vez de confiar en el 200/201, se compara contra el
+  // contenido real de la carpeta.
+  const trulyInFolder = docIdsAfter
+    ? attemptResults.filter((a) => a.docId && docIdsAfter.includes(a.docId))
+    : [];
+
+  // Marca visualmente cada intento según si REALMENTE quedó en la carpeta.
+  attemptResults.forEach((a, i) => {
+    const row = attemptsEl.children[candidates.findIndex((c) => c === a.candidate)];
+    if (!row) return;
+    const reallyIn = docIdsAfter && docIdsAfter.includes(a.docId);
+    const tag = document.createElement('span');
+    tag.style.marginLeft = '6px';
+    tag.style.fontWeight = '700';
+    tag.style.color = reallyIn ? 'var(--success)' : 'var(--error)';
+    tag.textContent = reallyIn ? '✓ SÍ quedó en la carpeta' : '✗ NO quedó en la carpeta (subió afuera)';
+    row.appendChild(tag);
+  });
+
+  const winner = trulyInFolder[0];
+
   if (winner) {
     resultBox.className = 'result-box show ok';
     resultBox.textContent =
-      `✓ Ruta ganadora: ${winner.candidate.label}\n\nRespuesta completa:\n${JSON.stringify(winner.raw, null, 2)}\n\n` +
-      `IMPORTANTE: confirma manualmente en la UI de Grid que el documento realmente aparece DENTRO de la carpeta ` +
-      `"${document.getElementById('folder-name').value}" — un 200 OK no garantiza que el archivo haya quedado ` +
-      `asociado a la carpeta si el campo del FormData no era el correcto (Grid podría ignorarlo silenciosamente ` +
-      `y subir el archivo al nivel raíz igual).`;
-    log('Upload dentro de carpeta: revisa en la UI de Grid si realmente quedó dentro', 'warn');
+      `✓ Ruta ganadora CONFIRMADA (verificado contra doc_ids real de la carpeta): ${winner.candidate.label}\n` +
+      `doc_id: ${winner.docId}\n\n` +
+      `doc_ids antes: ${JSON.stringify(docIdsBefore)}\n` +
+      `doc_ids después: ${JSON.stringify(docIdsAfter)}\n\n` +
+      `Respuesta completa:\n${JSON.stringify(winner.raw, null, 2)}`;
+    log(`CONFIRMADO: ${winner.candidate.label} sí asocia el documento a la carpeta`, 'ok');
+  } else if (attemptResults.length > 0) {
+    resultBox.className = 'result-box show fail';
+    resultBox.textContent =
+      `✗ Los ${attemptResults.length} intentos devolvieron 200/201, pero NINGUNO quedó realmente dentro de la carpeta ` +
+      `(doc_ids de la carpeta no cambió, o los doc_id subidos no aparecen ahí). Grid está ignorando el campo de ` +
+      `asociación en silencio y subiendo los documentos al nivel raíz de todos modos.\n\n` +
+      `doc_ids antes: ${JSON.stringify(docIdsBefore)}\n` +
+      `doc_ids después: ${JSON.stringify(docIdsAfter)}\n\n` +
+      `Alternativa a probar: mover el documento a la carpeta DESPUÉS de subirlo, con un endpoint específico ` +
+      `de asociación (p. ej. PUT/PATCH /api/v1/folders/{folder_id}/documents/{doc_id}) — la Biblia solo confirma ` +
+      `que /move-document (mover un documento YA existente entre ubicaciones) está bloqueado con 403, no que ` +
+      `asociar-al-crear-la-carpeta esté bloqueado igual.`;
+    log('Ningún método de upload-en-carpeta quedó confirmado — Grid ignora el campo silenciosamente', 'fail');
   } else {
     resultBox.className = 'result-box show fail';
     resultBox.textContent = '✗ Ninguna ruta candidata funcionó para subir dentro de la carpeta. Ver consola para detalle.';
