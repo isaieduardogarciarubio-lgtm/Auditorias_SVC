@@ -432,6 +432,42 @@ body {
   border-bottom-color: var(--color-error);
 }
 
+/* Choice step (enum): tarjetas planas que confirman y avanzan al tocarlas,
+   sin círculo de radio ni botón "Continuar" intermedio. */
+.choice-group {
+  display: flex;
+  flex-direction: column;
+  gap: var(--spacing-sm);
+  margin-bottom: var(--spacing-md);
+}
+
+.choice-option {
+  width: 100%;
+  text-align: left;
+  padding: var(--spacing-md) var(--spacing-lg);
+  border: 1px solid var(--color-border);
+  border-radius: var(--radius-card);
+  background: var(--color-surface);
+  color: var(--color-text-primary);
+  font-family: inherit;
+  font-size: var(--font-body);
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.15s ease, transform 0.1s ease;
+}
+
+.choice-option:hover {
+  background: var(--color-surface-hover);
+}
+
+.choice-option:active {
+  transform: scale(0.98);
+}
+
+.choice-group.error .choice-option {
+  border-color: var(--color-error);
+}
+
 textarea.step-input {
   resize: vertical;
   min-height: 96px;
@@ -1737,6 +1773,10 @@ class FormEngine {
       this.renderPhotoStep(field);
       return;
     }
+    if (field.type === 'choice') {
+      this.renderChoiceStep(field);
+      return;
+    }
 
     this.container.innerHTML = '';
     const screen = document.createElement('div');
@@ -1813,55 +1853,7 @@ class FormEngine {
   buildInput(field) {
     let input;
 
-    if (field.type === 'choice') {
-      // Radio buttons para opciones de enum
-      const container = document.createElement('div');
-      container.className = 'choice-group';
-      container.style.display = 'flex';
-      container.style.flexDirection = 'column';
-      container.style.gap = '12px';
-
-      field.options.forEach((option) => {
-        const label = document.createElement('label');
-        label.style.display = 'flex';
-        label.style.alignItems = 'center';
-        label.style.gap = '8px';
-        label.style.cursor = 'pointer';
-        label.style.padding = '12px';
-        label.style.borderRadius = '8px';
-        label.style.border = '1px solid var(--color-border)';
-        label.style.transition = 'background 0.15s';
-
-        const radio = document.createElement('input');
-        radio.type = 'radio';
-        radio.name = field.id;
-        radio.value = option;
-        radio.style.cursor = 'pointer';
-
-        const text = document.createElement('span');
-        text.textContent = option;
-        text.style.flex = '1';
-
-        label.appendChild(radio);
-        label.appendChild(text);
-
-        label.addEventListener('click', () => {
-          radio.checked = true;
-          label.parentElement.querySelectorAll('label').forEach(l => {
-            l.style.background = '';
-          });
-          label.style.background = 'var(--color-surface-hover)';
-          container.value = option;
-          container.dispatchEvent(new Event('change'));
-        });
-
-        container.appendChild(label);
-      });
-
-      container.id = field.id;
-      container.name = field.id;
-      return container;
-    } else if (field.type === 'select') {
+    if (field.type === 'select') {
       input = document.createElement('select');
       input.className = 'step-input';
       field.options.forEach((option) => {
@@ -1914,7 +1906,6 @@ class FormEngine {
     actions.appendChild(nextBtn);
     this.container.appendChild(actions);
     this.actionsEl = actions;
-    this._nextBtn = nextBtn; // Guardar referencia para deshabilitar después
     this.repositionActions();
   }
 
@@ -2536,6 +2527,63 @@ class FormEngine {
     return compressImageFile(file, opts);
   }
 
+  /**
+   * Paso de opción (enum): tarjetas planas sin círculo de radio — tocar una
+   * opción confirma el valor y avanza de inmediato (mismo patrón "avanza
+   * solo" que el scanner al detectar un código), sin botón "Continuar"
+   * intermedio.
+   */
+  renderChoiceStep(field) {
+    this.container.innerHTML = '';
+
+    const screen = document.createElement('div');
+    screen.className = 'step-screen';
+    screen.appendChild(this.buildProgress());
+
+    const h1 = document.createElement('h1');
+    h1.className = 'step-question';
+    h1.textContent = field.label;
+    screen.appendChild(h1);
+
+    const choiceGroup = document.createElement('div');
+    choiceGroup.className = 'choice-group';
+
+    field.options.forEach((option) => {
+      const optBtn = document.createElement('button');
+      optBtn.type = 'button';
+      optBtn.className = 'choice-option';
+      optBtn.textContent = option;
+      optBtn.addEventListener('click', () => {
+        if (this._saving) return;
+        this.vibrate(10);
+        this.values[field.id] = option;
+        this.advance();
+      });
+      choiceGroup.appendChild(optBtn);
+    });
+
+    screen.appendChild(choiceGroup);
+
+    const support = document.createElement('div');
+    support.className = 'step-support';
+    screen.appendChild(support);
+
+    this.container.appendChild(screen);
+    this.supportEl = support;
+    this.errorTargetEl = choiceGroup;
+    this.currentInput = null;
+
+    // Sin botón "Continuar": la selección misma confirma y avanza. Solo se
+    // muestra "Omitir" si el campo no es obligatorio.
+    const existingActions = this.container.querySelector('.step-actions');
+    if (existingActions) existingActions.remove();
+    this.actionsEl = null;
+
+    if (!field.required) {
+      this.setActions([this.makeButton('Omitir', { onClick: () => this.skip() })]);
+    }
+  }
+
   /* ====================================================================== */
 
   readCurrentValue() {
@@ -2614,10 +2662,19 @@ class FormEngine {
   }
 
   finish() {
+    if (this._saving) return; // Evita duplicados si se dispara más de una vez
     this._saving = true;
-    if (this._nextBtn) {
-      this._nextBtn.disabled = true;
-      this._nextBtn.innerHTML = `<span style="opacity:0.6;">Guardando...</span>${Icons.svg('refresh', { size: 16, className: 'spinning' })}`;
+
+    // Deshabilita TODOS los botones de la barra de acciones actual (cubre
+    // tanto el botón "Continuar"/"Agregar Registro" genérico como el que
+    // arma el paso de foto con setActions, que no pasa por renderActions).
+    if (this.actionsEl) {
+      const buttons = this.actionsEl.querySelectorAll('button');
+      buttons.forEach((b) => { b.disabled = true; });
+      const primaryBtn = this.actionsEl.querySelector('.btn-primary') || buttons[buttons.length - 1];
+      if (primaryBtn) {
+        primaryBtn.innerHTML = `<span style="opacity:0.6;">Guardando...</span>${Icons.svg('refresh', { size: 16, className: 'spinning' })}`;
+      }
     }
 
     this.stopScanner();
