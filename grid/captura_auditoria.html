@@ -1262,6 +1262,18 @@ const ScanParser = (() => {
       return DOCA_PATTERN.test(value) ? value : null;
     }
 
+    // QR/código libre (p. ej. "QR Driver" del Double-Check HV): se guarda
+    // el contenido tal cual, sin validar formato — solo se rechaza vacío.
+    if (expectedType === 'raw') {
+      return value || null;
+    }
+
+    // HU o Shipment indistinto (log Damaged): acepta cualquiera de los dos
+    // tipos numéricos; no se rechaza por "kind" porque ambos son válidos.
+    if (expectedType === 'hu_shipment') {
+      return ID_PATTERN.test(value) ? value : null;
+    }
+
     if (!ID_PATTERN.test(value)) return null;
     if (expectedType && kind && kind !== expectedType) return null;
     return value;
@@ -2059,7 +2071,10 @@ class FormEngine {
   }
 
   idTypeLabel(field) {
-    const labels = { hu: 'HU', shipment: 'Shipment ID', plate: 'Patente' };
+    const labels = {
+      hu: 'HU', shipment: 'Shipment ID', plate: 'Patente',
+      hu_shipment: 'HU o Shipment ID', raw: 'código', doca: 'doca',
+    };
     return labels[field.idType] || 'código';
   }
 
