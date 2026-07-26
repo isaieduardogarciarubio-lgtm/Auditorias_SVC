@@ -690,6 +690,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         <!-- Table -->
         <div class="table-wrapper">
+          <!-- Date Range Filter -->
+          <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">
+            <label style="font-size: 0.85rem; color: var(--text-muted);">Filtrar por fecha:</label>
+            <input type="date" id="date-from" style="padding: 6px 8px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-primary); font-size: 0.85rem;" />
+            <span style="color: var(--text-muted);">hasta</span>
+            <input type="date" id="date-to" style="padding: 6px 8px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-primary); font-size: 0.85rem;" />
+            <button id="btn-clear-filters" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-primary); font-size: 0.85rem; cursor: pointer;">Limpiar</button>
+          </div>
+          <!-- Search Bar (fixed position while scrolling) -->
           <div class="table-controls">
             <input type="text" class="search-input" id="search-input" placeholder="Buscar en registros…" />
           </div>
@@ -697,6 +706,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
             <thead id="table-head"></thead>
             <tbody id="table-body"></tbody>
           </table>
+          <!-- Pagination -->
+          <div style="display: flex; gap: 12px; margin-top: 12px; justify-content: center;">
+            <button id="btn-load-more" style="padding: 8px 16px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-primary); font-size: 0.85rem; cursor: pointer; display: none;">Cargar más</button>
+            <span id="pagination-info" style="color: var(--text-muted); font-size: 0.85rem;"></span>
+          </div>
         </div>
       </div>
     </div>
@@ -957,15 +971,29 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       this.gridClient = new GridClient(this.docId);
       this.logs = {
         contenedor: [],
+        rts: [],
+        double_check_hv: [],
+        damaged: [],
       };
       this.currentLog = 'contenedor';
       this.activeMainTab = 'upload';
+      // Filtros y paginación
+      this.dateFrom = null;
+      this.dateTo = null;
+      this.displayedCount = 10;
       this.init();
     }
 
     async init() {
       this.setupEventListeners();
       this.loadHeaderLogo();
+
+      // Establecer rango de fechas por defecto (mes actual)
+      const today = new Date();
+      const firstDayOfMonth = new Date(today.getFullYear(), today.getMonth(), 1);
+      this.dateFrom = firstDayOfMonth;
+      document.getElementById('date-from').value = firstDayOfMonth.toISOString().split('T')[0];
+
       await this.loadAllLogs();
       await this.loadCatalogStatus();
       const hasExistingData = Object.values(this.logs).some(r => r.length > 0);
@@ -1023,6 +1051,32 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
       document.getElementById('main-tab-upload').addEventListener('click', () => this.switchMainTab('upload'));
       document.getElementById('main-tab-analysis').addEventListener('click', () => this.switchMainTab('analysis'));
+
+      // Date filters
+      document.getElementById('date-from').addEventListener('change', (e) => {
+        this.dateFrom = e.target.value ? new Date(e.target.value) : null;
+        this.displayedCount = 10;
+        this.render();
+      });
+      document.getElementById('date-to').addEventListener('change', (e) => {
+        this.dateTo = e.target.value ? new Date(e.target.value) : null;
+        this.displayedCount = 10;
+        this.render();
+      });
+      document.getElementById('btn-clear-filters').addEventListener('click', () => {
+        this.dateFrom = null;
+        this.dateTo = null;
+        document.getElementById('date-from').value = '';
+        document.getElementById('date-to').value = '';
+        this.displayedCount = 10;
+        this.render();
+      });
+
+      // Pagination
+      document.getElementById('btn-load-more').addEventListener('click', () => {
+        this.displayedCount += 10;
+        this.render();
+      });
     }
 
     switchMainTab(tabName) {
@@ -1390,6 +1444,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         tab.textContent = this.getLogTitle(logType);
         tab.addEventListener('click', () => {
           this.currentLog = logType;
+          this.displayedCount = 10; // Reset paginación al cambiar de log
           this.render();
         });
         container.appendChild(tab);
@@ -1397,9 +1452,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
 
     renderAnalysis() {
-      const records = this.logs[this.currentLog];
+      const allRecords = this.logs[this.currentLog];
 
-      if (records.length === 0) {
+      if (!allRecords || allRecords.length === 0) {
         document.getElementById('no-data-message').style.display = 'block';
         document.getElementById('analysis-content').style.display = 'none';
         return;
@@ -1408,13 +1463,36 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       document.getElementById('no-data-message').style.display = 'none';
       document.getElementById('analysis-content').style.display = 'block';
 
-      this.renderKpis(records);
-      this.renderTable(records);
+      // Obtener registros filtrados (por fecha) y ordenados
+      const filteredRecords = this.getFilteredRecords();
+
+      if (filteredRecords.length === 0) {
+        document.getElementById('no-data-message').style.display = 'block';
+        document.getElementById('analysis-content').style.display = 'none';
+        return;
+      }
+
+      // KPIs y gráficas usan TODOS los filtrados (no paginados)
+      this.renderKpis(filteredRecords);
+
+      // Tabla muestra solo los últimos N (paginado)
+      const displayedRecords = filteredRecords.slice(0, this.displayedCount);
+      this.renderTable(displayedRecords);
+
+      // Mostrar paginación si hay más registros
+      const btnLoadMore = document.getElementById('btn-load-more');
+      const paginationInfo = document.getElementById('pagination-info');
+      if (filteredRecords.length > this.displayedCount) {
+        btnLoadMore.style.display = 'inline-block';
+        paginationInfo.textContent = `Mostrando ${displayedRecords.length} de ${filteredRecords.length}`;
+      } else {
+        btnLoadMore.style.display = 'none';
+        paginationInfo.textContent = `Total: ${filteredRecords.length}`;
+      }
 
       // Las gráficas solo se dibujan cuando el panel realmente está visible
-      // (ver switchMainTab) para que Plotly calcule dimensiones correctas.
       if (this.activeMainTab === 'analysis') {
-        this.renderCharts(records);
+        this.renderCharts(filteredRecords);
       }
     }
 
@@ -1593,9 +1671,9 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       tr.appendChild(thActions);
       thead.appendChild(tr);
 
-      records.forEach((record, index) => {
+      records.forEach((record) => {
         const tr = document.createElement('tr');
-        tr.setAttribute('data-index', index);
+        tr.setAttribute('data-uid', record.uid || '');
 
         config.csvColumns.forEach(col => {
           const td = document.createElement('td');
@@ -1634,7 +1712,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         btnDelete.className = 'btn-action btn-delete';
         btnDelete.title = 'Borrar registro';
         btnDelete.innerHTML = SVG_ICONS.trash;
-        btnDelete.addEventListener('click', () => this.deleteRecord(this.currentLog, index));
+        btnDelete.addEventListener('click', () => this.deleteRecord(this.currentLog, record.uid));
 
         tdActions.appendChild(btnDelete);
         tr.appendChild(tdActions);
@@ -1643,26 +1721,29 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       });
     }
 
-    async deleteRecord(logType, index) {
+    async deleteRecord(logType, uid) {
       if (!confirm('¿Estás seguro de que quieres borrar este registro? Se eliminará tanto de la tabla como del consolidado.')) {
         return;
       }
 
       const records = this.logs[logType];
-      if (index < 0 || index >= records.length) {
+      const recordIndex = records.findIndex(r => r.uid === uid);
+      if (recordIndex < 0) {
         alert('Registro no encontrado');
         return;
       }
 
+      const deletedRecord = records[recordIndex];
+
       // Borrar del array local
-      records.splice(index, 1);
+      records.splice(recordIndex, 1);
 
       // Actualizar el bucket en Grid
       try {
         await this.gridClient.setStateBucket(`${logType}_master`, { version: 1, records });
         this.showNotification('Registro borrado exitosamente', 'success');
       } catch (error) {
-        this.logs[logType].splice(index, 0, records[index]); // Restaurar si falla
+        records.splice(recordIndex, 0, deletedRecord); // Restaurar si falla
         this.showNotification('Error al borrar: ' + error.message, 'error');
         return;
       }
@@ -1672,12 +1753,32 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
 
     filterTable(query) {
-      const tbody = document.getElementById('table-body');
-      const rows = tbody.querySelectorAll('tr');
-      rows.forEach(row => {
-        const text = row.textContent.toLowerCase();
-        row.style.display = text.includes(query.toLowerCase()) ? '' : 'none';
+      if (!query.trim()) {
+        // Sin búsqueda: mostrar los filtrados por fecha
+        this.displayedCount = 10;
+        this.render();
+        return;
+      }
+
+      // Buscar en los registros filtrados (por fecha)
+      const filteredRecords = this.getFilteredRecords();
+      const queryLower = query.toLowerCase();
+      const searchResults = filteredRecords.filter(r => {
+        const config = FORMS_CONFIG[this.currentLog];
+        const recordText = (config.csvColumns || [])
+          .map(col => String(r[col.field] || '').toLowerCase())
+          .join(' ');
+        return recordText.includes(queryLower);
       });
+
+      // Mostrar resultados de búsqueda (sin paginación: mostrar todos los resultados)
+      this.renderTable(searchResults);
+
+      // Actualizar info de paginación
+      const btnLoadMore = document.getElementById('btn-load-more');
+      const paginationInfo = document.getElementById('pagination-info');
+      btnLoadMore.style.display = 'none';
+      paginationInfo.textContent = `${searchResults.length} resultado${searchResults.length !== 1 ? 's' : ''} encontrado${searchResults.length !== 1 ? 's' : ''}`;
     }
 
     /** ¿El registro tiene al menos una foto (doc ID o data URL legacy)? */
@@ -1833,6 +1934,34 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       setTimeout(() => toast.remove(), 4000);
     }
 
+    getFilteredRecords() {
+      let records = this.logs[this.currentLog] || [];
+
+      // Aplicar filtro de fecha
+      if (this.dateFrom || this.dateTo) {
+        records = records.filter(r => {
+          const recDate = r.ts ? new Date(r.ts) : null;
+          if (!recDate) return true;
+          if (this.dateFrom && recDate < this.dateFrom) return false;
+          if (this.dateTo) {
+            const dateToEndOfDay = new Date(this.dateTo);
+            dateToEndOfDay.setHours(23, 59, 59, 999);
+            if (recDate > dateToEndOfDay) return false;
+          }
+          return true;
+        });
+      }
+
+      // Ordenar por ts descendente (más recientes primero)
+      records = records.sort((a, b) => {
+        const aDate = a.ts ? new Date(a.ts).getTime() : 0;
+        const bDate = b.ts ? new Date(b.ts).getTime() : 0;
+        return bDate - aDate;
+      });
+
+      return records;
+    }
+
     getLogTitle(logType) {
       const config = FORMS_CONFIG[logType];
       return config?.title || logType;
@@ -1969,6 +2098,43 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         { field: 'evidencia', header: 'Evidencia' },
       ],
       fields: [{ type: 'photo', id: 'evidencia' }],
+    },
+    rts: {
+      title: 'Retornos (RTS)',
+      csvColumns: [
+        { field: 'auditoria', header: 'Auditor' },
+        { field: 'ts', header: 'Fecha/Hora' },
+        { field: 'shipment', header: 'Shipment ID' },
+        { field: 'hallazgo', header: 'Hallazgo' },
+        { field: 'tratativa', header: 'Tratativa' },
+        { field: 'imagen', header: 'Imagen' },
+      ],
+      fields: [{ type: 'photo', id: 'imagen' }],
+    },
+    double_check_hv: {
+      title: 'Double-Check HV',
+      csvColumns: [
+        { field: 'auditoria', header: 'Auditor' },
+        { field: 'ts', header: 'Fecha/Hora' },
+        { field: 'shipment', header: 'Shipment ID' },
+        { field: 'qr_driver', header: 'QR Driver' },
+        { field: 'imagen', header: 'Imagen' },
+      ],
+      fields: [{ type: 'photo', id: 'imagen' }],
+    },
+    damaged: {
+      title: 'Dañado/Posible Dañado',
+      csvColumns: [
+        { field: 'auditoria', header: 'Auditor' },
+        { field: 'ts', header: 'Fecha/Hora' },
+        { field: 'area', header: 'Área' },
+        { field: 'origen', header: 'Origen' },
+        { field: 'hu_shipment', header: 'HU / Shipment ID' },
+        { field: 'tipo_incidencia', header: 'Tipo de Incidencia' },
+        { field: 'comentarios', header: 'Comentarios' },
+        { field: 'imagen', header: 'Imagen' },
+      ],
+      fields: [{ type: 'photo', id: 'imagen' }],
     },
   };
 

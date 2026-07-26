@@ -1196,11 +1196,6 @@ const FORMS_CONFIG = {
     description: 'Declara la doca y escanea shipments en bucle: correcto avanza solo, incorrecto pide foto',
     icon: 'inbox',
     requiresStatusCatalog: true,
-    // Este log ya NO usa el wizard genérico de FormEngine (un campo por
-    // pantalla, ver clase FormEngine más abajo) — la doca se declara una
-    // vez por sesión (cambiable en cualquier momento) y el shipment se
-    // escanea en bucle continuo sin pasos intermedios ni confirmación
-    // manual. Ver clase ContenedorAuditSession.
     fields: [],
     csvColumns: [
       { field: 'auditoria', header: 'Auditor' },
@@ -1214,6 +1209,71 @@ const FORMS_CONFIG = {
       { field: 'resultado', header: 'Resultado' },
       { field: 'motivo', header: 'Motivo' },
       { field: 'evidencia', header: 'Evidencia', type: 'photo' },
+    ],
+  },
+  rts: {
+    id: 'rts',
+    title: 'Retornos (RTS)',
+    description: 'Registra devoluciones: hallazgo y tratativa',
+    icon: 'package',
+    requiresStatusCatalog: false,
+    fields: [
+      { id: 'shipment', label: 'Shipment ID', type: 'scanner', idType: 'shipment', required: true, placeholder: 'Escanea o escribe' },
+      { id: 'hallazgo', label: 'Hallazgo', type: 'choice', options: ['Sin divergencias', 'Manipulado', 'Dañado'], required: true },
+      { id: 'tratativa', label: 'Tratativa', type: 'choice', options: ['Entregado a OPS', 'Resguardo LP', 'Investigación LP'], required: true },
+      { id: 'imagen', label: 'Imagen', type: 'photo', required: true },
+    ],
+    csvColumns: [
+      { field: 'auditoria', header: 'Auditor' },
+      { field: 'ts', header: 'Fecha/Hora' },
+      { field: 'shipment', header: 'Shipment ID' },
+      { field: 'hallazgo', header: 'Hallazgo' },
+      { field: 'tratativa', header: 'Tratativa' },
+      { field: 'imagen', header: 'Imagen', type: 'photo' },
+    ],
+  },
+  double_check_hv: {
+    id: 'double_check_hv',
+    title: 'Double-Check HV',
+    description: 'Verifica con QR del conductor',
+    icon: 'checkCircle',
+    requiresStatusCatalog: false,
+    fields: [
+      { id: 'shipment', label: 'Shipment ID', type: 'scanner', idType: 'shipment', required: true, placeholder: 'Escanea o escribe' },
+      { id: 'qr_driver', label: 'QR Driver', type: 'scanner', idType: 'raw', required: true, placeholder: 'Escanea el QR del conductor' },
+      { id: 'imagen', label: 'Imagen', type: 'photo', required: true },
+    ],
+    csvColumns: [
+      { field: 'auditoria', header: 'Auditor' },
+      { field: 'ts', header: 'Fecha/Hora' },
+      { field: 'shipment', header: 'Shipment ID' },
+      { field: 'qr_driver', header: 'QR Driver' },
+      { field: 'imagen', header: 'Imagen', type: 'photo' },
+    ],
+  },
+  damaged: {
+    id: 'damaged',
+    title: 'Dañado/Posible Dañado',
+    description: 'Registra incidencias de daño',
+    icon: 'alertCircle',
+    requiresStatusCatalog: false,
+    fields: [
+      { id: 'area', label: 'Área', type: 'text', required: true, placeholder: 'Ej. Centro de distribución' },
+      { id: 'origen', label: 'Origen', type: 'text', required: true, placeholder: 'Ej. Inbound / Outbound' },
+      { id: 'hu_shipment', label: 'HU o Shipment ID', type: 'scanner', idType: 'hu_shipment', required: true, placeholder: 'Escanea HU o Shipment' },
+      { id: 'tipo_incidencia', label: 'Tipo de Incidencia', type: 'choice', options: ['No contenerizado', 'Dañado', 'Posible dañado'], required: true },
+      { id: 'comentarios', label: 'Comentarios', type: 'textarea', required: false, placeholder: 'Detalles adicionales' },
+      { id: 'imagen', label: 'Imagen', type: 'photo', required: true },
+    ],
+    csvColumns: [
+      { field: 'auditoria', header: 'Auditor' },
+      { field: 'ts', header: 'Fecha/Hora' },
+      { field: 'area', header: 'Área' },
+      { field: 'origen', header: 'Origen' },
+      { field: 'hu_shipment', header: 'HU / Shipment ID' },
+      { field: 'tipo_incidencia', header: 'Tipo de Incidencia' },
+      { field: 'comentarios', header: 'Comentarios' },
+      { field: 'imagen', header: 'Imagen', type: 'photo' },
     ],
   },
 };
@@ -3161,10 +3221,11 @@ class CapturaApp {
     this.statusCatalogIndex = {};
     this.statusCatalogLoadedAt = null;
     this.catalogAccessDenied = false;
-    this.outboxRecords = [];
+    this.outboxRecords = []; // agrupa registros por formId: {contenedor: [...], rts: [...], ...}
     this.currentEngine = null;
     this.userEmail = null;
     this.pendingCount = 0;
+    this.folderId = null; // carpeta fija para organizar fotos
 
     // Guard de historial: intercepta el botón/gesto "atrás" del sistema
     // (Android, o el back del navegador) para navegar dentro de la app
@@ -3230,6 +3291,31 @@ class CapturaApp {
     el.addEventListener('click', () => this.showToast(this.userEmail, 'info'));
   }
 
+  async ensureFolderId() {
+    try {
+      DebugConsole.log('Creando/obteniendo carpeta de fotos...', 'info');
+      const res = await this.gridClient._fetchWithTimeout(
+        `${location.origin}/api/v1/folders`,
+        {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          credentials: 'include',
+          body: JSON.stringify({ name: 'Auditorías SVC' }),
+        }
+      );
+      const data = await res.json();
+      if (res.ok && data.folder_id) {
+        this.folderId = data.folder_id;
+        DebugConsole.log(`Carpeta lista: ${this.folderId}`, 'info');
+      } else {
+        DebugConsole.log(`No se pudo crear carpeta: ${res.status}`, 'warn');
+      }
+    } catch (e) {
+      DebugConsole.log(`Error creando carpeta: ${e.message}`, 'warn');
+      // No es bloqueante — la app sigue sin carpeta, solo sin organización
+    }
+  }
+
   async init() {
     try {
       const me = await this.gridClient.getMe();
@@ -3240,6 +3326,7 @@ class CapturaApp {
 
       await this.loadStatusCatalog();
       await this.loadOutboxFromStorage();
+      await this.ensureFolderId();
 
       this.renderMenu();
     } catch (e) {
@@ -3304,19 +3391,22 @@ class CapturaApp {
 
   async loadOutboxFromStorage() {
     try {
-      const all = await RecordStore.loadAll();
-      this.outboxRecords = all.contenedor || [];
+      this.outboxRecords = await RecordStore.loadAll();
+      const totalPending = Object.values(this.outboxRecords).reduce((acc, arr) => acc + arr.length, 0);
+      this.pendingCount = totalPending;
       this.updatePendingBadge();
-      DebugConsole.log(`Registros pendientes: ${this.outboxRecords.length}`, 'info');
+      DebugConsole.log(`Registros pendientes: ${totalPending} en ${Object.keys(this.outboxRecords).length} forms`, 'info');
     } catch (e) {
       DebugConsole.log(`Error al cargar registros: ${e.message}`, 'error');
+      this.outboxRecords = {};
     }
   }
 
   updatePendingBadge() {
     const badge = document.getElementById('status-badge');
     if (badge) {
-      badge.textContent = `${this.outboxRecords.length} pendientes`;
+      const total = Object.values(this.outboxRecords).reduce((acc, arr) => acc + arr.length, 0);
+      badge.textContent = `${total} pendientes`;
     }
   }
 
@@ -3359,30 +3449,42 @@ class CapturaApp {
           </div>
         `}
 
-        <!-- Start Audit Card -->
-        <div onclick="${catalogReady ? "window.app.startForm('contenedor')" : ''}" style="background: var(--color-surface); border-radius: var(--radius-card); padding: 20px; cursor: ${catalogReady ? 'pointer' : 'default'}; margin-bottom: 12px; transition: all 0.15s ease; ${!catalogReady ? 'opacity: 0.5;' : ''}">
-          <div style="display: flex; align-items: center; gap: 16px;">
-            <div style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--radius-pill); background: var(--color-bg); color: var(--color-text-primary); flex-shrink: 0;">
-              ${Icons.svg('inbox', { size: 20 })}
-            </div>
-            <div style="flex: 1;">
-              <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 4px;">Validación de Contenedor</h3>
-              <p style="font-size: 0.88rem; color: var(--color-text-muted);">Declara la doca y escanea shipments en bucle rápido</p>
-            </div>
-            <div style="color: var(--color-text-muted); flex-shrink: 0;">
-              ${Icons.svg('arrowRight', { size: 20 })}
-            </div>
-          </div>
+        <!-- Log Cards -->
+        <div style="margin-top: 12px;">
+          ${['contenedor', 'rts', 'double_check_hv', 'damaged'].map((formId) => {
+            const config = FORMS_CONFIG[formId];
+            const requiresCatalog = config.requiresStatusCatalog;
+            const disabled = requiresCatalog && !catalogReady;
+            return `
+              <div onclick="${!disabled ? `window.app.startForm('${formId}')` : ''}" style="background: var(--color-surface); border-radius: var(--radius-card); padding: 20px; cursor: ${!disabled ? 'pointer' : 'default'}; margin-bottom: 12px; transition: all 0.15s ease; ${disabled ? 'opacity: 0.5;' : 'hover: background-color: var(--color-surface-hover);'}">
+                <div style="display: flex; align-items: center; gap: 16px;">
+                  <div style="display: flex; align-items: center; justify-content: center; width: 44px; height: 44px; border-radius: var(--radius-pill); background: var(--color-bg); color: var(--color-text-primary); flex-shrink: 0;">
+                    ${Icons.svg(config.icon, { size: 20 })}
+                  </div>
+                  <div style="flex: 1;">
+                    <h3 style="font-size: 1.05rem; font-weight: 700; margin-bottom: 4px;">${config.title}</h3>
+                    <p style="font-size: 0.88rem; color: var(--color-text-muted);">${config.description}</p>
+                  </div>
+                  <div style="color: var(--color-text-muted); flex-shrink: 0;">
+                    ${Icons.svg('arrowRight', { size: 20 })}
+                  </div>
+                </div>
+              </div>
+            `;
+          }).join('')}
         </div>
 
-        ${this.outboxRecords.length > 0 ? `
-          <div style="margin-top: 32px;">
-            <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 12px;">Registros Pendientes (${this.outboxRecords.length})</h3>
-            <button onclick="window.app.flushOutbox()" class="btn btn-primary" style="width: 100%;">
-              ${Icons.svg('refresh', { size: 16 })} <span>Sincronizar Ahora</span>
-            </button>
-          </div>
-        ` : ''}
+        ${(() => {
+          const totalPending = Object.values(this.outboxRecords).reduce((acc, arr) => acc + arr.length, 0);
+          return totalPending > 0 ? `
+            <div style="margin-top: 32px;">
+              <h3 style="font-size: 1rem; font-weight: 700; margin-bottom: 12px;">Registros Pendientes (${totalPending})</h3>
+              <button onclick="window.app.flushOutbox()" class="btn btn-primary" style="width: 100%;">
+                ${Icons.svg('refresh', { size: 16 })} <span>Sincronizar Ahora</span>
+              </button>
+            </div>
+          ` : '';
+        })()}
 
         <div style="margin-top: 32px;">
           <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px;">
@@ -3512,7 +3614,8 @@ class CapturaApp {
    */
   async persistRecord(formId, record) {
     await RecordStore.put(record.uid, formId, record);
-    this.outboxRecords.push(record);
+    if (!this.outboxRecords[formId]) this.outboxRecords[formId] = [];
+    this.outboxRecords[formId].push(record);
     this.updatePendingBadge();
 
     // Historial del dispositivo (independiente de la cola de sync)
@@ -3551,36 +3654,59 @@ class CapturaApp {
   }
 
   /**
-   * Sube un registro a contenedor_master con reintento en 409 (otro
-   * dispositivo escribió al mismo tiempo). Los errores de red/timeout se
-   * relanzan tal cual (marcados isNetworkError/isTimeout) para que
-   * flushOutbox decida cortar el lote en vez de reintentar cada registro
-   * contra una conexión que ya sabemos que no responde.
+   * Sube un registro a {formId}_master con reintento en 409. Sube fotos
+   * (data: URLs) a Grid, las asocia a la carpeta de Auditorías SVC, y
+   * reemplaza el data: URL con el doc_id.
    */
-  async syncOneRecord(record, attempt = 0) {
-    if (record.evidencia && record.evidencia.startsWith('data:')) {
-      const blob = await this.dataUrlToBlob(record.evidencia);
-      const docId = await this.gridClient.uploadPublicDocument(blob, `evidencia_${record.uid}.jpg`);
-      record.evidencia = docId;
+  async syncOneRecord(formId, record, attempt = 0) {
+    const formConfig = FORMS_CONFIG[formId];
+    const photoField = formConfig?.csvColumns?.find((col) => col.type === 'photo')?.field;
+
+    // Subir evidencia si existe como data: URL
+    if (photoField && record[photoField] && record[photoField].startsWith('data:')) {
+      const blob = await this.dataUrlToBlob(record[photoField]);
+      const docId = await this.gridClient.uploadPublicDocument(blob, `${formId}_${record.uid}.jpg`);
+      record[photoField] = docId;
+
+      // Asociar la foto a la carpeta (si existe)
+      if (this.folderId) {
+        try {
+          await this.gridClient._fetchWithTimeout(
+            `${location.origin}/api/v1/folders/${this.folderId}/documents`,
+            {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              credentials: 'include',
+              body: JSON.stringify({ doc_id: docId }),
+            }
+          );
+          DebugConsole.log(`Foto asociada a carpeta: ${docId}`, 'info');
+        } catch (e) {
+          DebugConsole.log(`No se pudo asociar foto a carpeta: ${e.message}`, 'warn');
+          // No es bloqueante — la foto está subida, solo no organizada
+        }
+      }
     }
 
-    const bucket = (await this.gridClient.getStateBucket('contenedor_master')) || { records: [] };
+    const bucketName = `${formId}_master`;
+    const bucket = (await this.gridClient.getStateBucket(bucketName)) || { records: [] };
     if (!bucket.records) bucket.records = [];
 
     const alreadyThere = bucket.records.some((r) => r.uid === record.uid);
     if (!alreadyThere) bucket.records.push(record);
 
-    const result = await this.gridClient.setStateBucket('contenedor_master', bucket);
+    const result = await this.gridClient.setStateBucket(bucketName, bucket);
 
     if (result?.conflict) {
       if (attempt >= 5) throw new Error('Demasiados conflictos de escritura simultánea — intenta de nuevo');
       await new Promise((r) => setTimeout(r, 400 + Math.random() * 400));
-      return this.syncOneRecord(record, attempt + 1);
+      return this.syncOneRecord(formId, record, attempt + 1);
     }
   }
 
   async flushOutbox() {
-    if (this.outboxRecords.length === 0) {
+    const totalPending = Object.values(this.outboxRecords).reduce((acc, arr) => acc + arr.length, 0);
+    if (totalPending === 0) {
       this.showToast('No hay registros pendientes', 'info');
       return;
     }
@@ -3595,32 +3721,38 @@ class CapturaApp {
     const synced = [];
     let networkDown = false;
 
-    for (const record of this.outboxRecords) {
-      try {
-        await this.syncOneRecord(record);
-        synced.push(record.uid);
-        await RecordStore.markHistorySynced(record.uid);
-        DebugConsole.log(`Sincronizado: ${record.uid}`, 'info');
-      } catch (e) {
-        if (e.isNetworkError || e.isTimeout) {
-          // La red no responde: seguir intentando registro por registro
-          // solo repetiría el mismo fallo. Se corta el lote y se deja el
-          // resto en la cola para el próximo intento (evento 'online',
-          // botón manual, o reintento automático).
-          DebugConsole.log(`Sin conexión real con Grid: ${e.message} — se detiene el lote`, 'warn');
-          networkDown = true;
-          break;
+    for (const formId of Object.keys(this.outboxRecords)) {
+      const records = this.outboxRecords[formId];
+      for (const record of records) {
+        try {
+          await this.syncOneRecord(formId, record);
+          synced.push(record.uid);
+          await RecordStore.markHistorySynced(record.uid);
+          DebugConsole.log(`Sincronizado: ${record.uid}`, 'info');
+        } catch (e) {
+          if (e.isNetworkError || e.isTimeout) {
+            DebugConsole.log(`Sin conexión real con Grid: ${e.message} — se detiene el lote`, 'warn');
+            networkDown = true;
+            break;
+          }
+          DebugConsole.log(`Error al sincronizar ${record.uid}: ${e.message}`, 'error');
         }
-        DebugConsole.log(`Error al sincronizar ${record.uid}: ${e.message}`, 'error');
       }
+      if (networkDown) break;
     }
 
-    // Remove synced from outbox
+    // Remove synced from outbox y Storage
     for (const uid of synced) {
       await RecordStore.delete(uid);
     }
 
-    this.outboxRecords = this.outboxRecords.filter(r => !synced.includes(r.uid));
+    // Limpiar outboxRecords eliminando los sincronizados
+    for (const formId of Object.keys(this.outboxRecords)) {
+      this.outboxRecords[formId] = this.outboxRecords[formId].filter(r => !synced.includes(r.uid));
+      if (this.outboxRecords[formId].length === 0) {
+        delete this.outboxRecords[formId];
+      }
+    }
     this.updatePendingBadge();
 
     if (synced.length > 0) {
@@ -3628,17 +3760,17 @@ class CapturaApp {
       this.showToast(`${synced.length} registros sincronizados`, 'success');
     }
 
+    const totalRemaining = Object.values(this.outboxRecords).reduce((acc, arr) => acc + arr.length, 0);
     if (networkDown) {
       this.showToast(
-        `Sin conexión con Grid — ${this.outboxRecords.length} pendiente(s), se reintentará al reconectar`,
+        `Sin conexión con Grid — ${totalRemaining} pendiente(s), se reintentará al reconectar`,
         'warn'
       );
-    } else if (synced.length === 0 && this.outboxRecords.length > 0) {
+    } else if (synced.length === 0 && totalRemaining > 0) {
       this.showToast('No se pudo sincronizar — ver consola de errores', 'error');
     }
 
-    // Si el menú está visible, refrescar el historial para reflejar los
-    // nuevos badges "Sincronizado" sin esperar a la próxima navegación.
+    // Si el menú está visible, refrescar el historial
     if (document.getElementById('history-list')) {
       this.renderHistoryList();
     }
