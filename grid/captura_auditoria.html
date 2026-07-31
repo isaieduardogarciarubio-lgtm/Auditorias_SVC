@@ -1871,16 +1871,26 @@ const ScanUI = (() => {
   // teclado virtual deja sin forma de escribir manualmente cuando no hay
   // lector conectado (el teclado virtual no interfiere con un lector HID
   // real — este solo emula pulsaciones de teclado, indistinto del origen).
-  function buildHandheldInput({ placeholder, onSubmit, isActive, uppercase = true }) {
+  function buildHandheldInput({ placeholder, onSubmit, isActive, uppercase = true, numeric = false }) {
     const wrap = document.createElement('div');
     wrap.className = 'step-input-wrap';
     const input = document.createElement('input');
-    input.type = 'text';
+    // type="tel" + inputmode="numeric" + pattern="[0-9]*" es el truco
+    // estándar para forzar el teclado numérico puro en iOS/Android sin las
+    // rarezas de type="number" (permite +/-/e, maltrata ceros a la
+    // izquierda). Para el resto de los campos (HU/Shipment/QR) se deja el
+    // teclado normal, ya que ahí el operador espera escanear con el lector
+    // y rara vez teclea a mano.
+    input.type = numeric ? 'tel' : 'text';
     input.className = 'step-input';
     input.placeholder = placeholder || 'Escanea con el lector';
     input.setAttribute('autocomplete', 'off');
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('autocapitalize', uppercase ? 'characters' : 'off');
+    if (numeric) {
+      input.setAttribute('inputmode', 'numeric');
+      input.setAttribute('pattern', '[0-9]*');
+    }
     input.spellcheck = false;
     wrap.appendChild(input);
 
@@ -2246,6 +2256,7 @@ class FormEngine {
     const { wrap, input } = ScanUI.buildHandheldInput({
       placeholder: field.placeholder || 'Escanea el código',
       uppercase: field.idType !== 'raw',
+      numeric: field.idType === 'doca',
       isActive: () => !!this.scannerBody && this.scannerBody.contains(input) && ScanUI.mode() === 'handheld',
       onSubmit: () => this.confirmManual(field),
     });
@@ -2693,7 +2704,7 @@ class FormEngine {
 
   async enterPhotoCapture(field, note) {
     this.stopPhotoCamera();
-    this.supportEl.textContent = note || 'Encuadra y toma la foto con la cámara de la app.';
+    this.supportEl.textContent = note || 'Centra el paquete lo más posible para que se vean todas sus esquinas.';
     this.supportEl.classList.toggle('error', !!note);
 
     // Cámara DENTRO de la app (getUserMedia): en la handheld la cámara
@@ -3392,7 +3403,7 @@ class ContenedorAuditSession {
         <video class="scanner-video" playsinline muted></video>
       </div>
     `;
-    this.supportEl.textContent = note || `Shipment ${record.shipment} — encuadra y toma la foto.`;
+    this.supportEl.textContent = note || `Shipment ${record.shipment} — centra el paquete para que se vean todas sus esquinas.`;
     this.supportEl.classList.toggle('error', !!note);
 
     if (!PhotoCamera.isSupported()) {
