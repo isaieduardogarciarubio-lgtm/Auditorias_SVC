@@ -477,6 +477,69 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       font-size: 14px;
     }
 
+    /* ── REVISIÓN (segundo check de Incorrectos) ── */
+    .revision-card {
+      background: var(--surface);
+      border: 1px solid var(--border);
+      border-radius: var(--r-md);
+      padding: 16px;
+      margin-bottom: 12px;
+    }
+    .revision-card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      margin-bottom: 8px;
+    }
+    .revision-card-shipment {
+      font-size: 15px;
+      font-weight: 700;
+      color: var(--text);
+    }
+    .revision-card-meta {
+      font-size: 12px;
+      color: var(--text-mut);
+      margin-top: 2px;
+    }
+    .revision-card-motivo {
+      font-size: 13px;
+      color: var(--c-red);
+      margin-bottom: 14px;
+    }
+    .revision-card-actions {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+    }
+    .btn-revision {
+      border: 1px solid var(--border);
+      border-radius: var(--r-sm);
+      padding: 8px 14px;
+      font-size: 13px;
+      font-weight: 600;
+      cursor: pointer;
+      background: transparent;
+      color: var(--text);
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+    }
+    .btn-revision:hover { opacity: .85; }
+    .btn-revision-view {
+      color: var(--c-blue);
+      border-color: rgba(90, 149, 255, .35);
+    }
+    .btn-revision-incorrect {
+      color: var(--c-red);
+      border-color: rgba(255, 92, 108, .35);
+    }
+    .btn-revision-correct {
+      color: var(--c-green);
+      border-color: rgba(0, 214, 137, .35);
+      margin-left: auto;
+    }
+    #revision-permission-row .alert { margin-bottom: 0; }
+
     /* ── PHOTO MODAL ── */
     .modal {
       position: fixed;
@@ -580,6 +643,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     <button class="tab-link" data-tab="analysis" id="main-tab-analysis">
       <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><line x1="18" y1="20" x2="18" y2="10"/><line x1="12" y1="20" x2="12" y2="4"/><line x1="6" y1="20" x2="6" y2="14"/></svg>
       Análisis
+    </button>
+    <button class="tab-link" data-tab="revision" id="main-tab-revision" style="position: relative;">
+      <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>
+      Revisión
+      <span id="revision-count-badge" style="
+        display: none; margin-left: 4px; min-width: 16px; height: 16px; padding: 0 4px; border-radius: 50%; background: var(--c-red);
+        color: #fff; font-size: 10px; font-weight: 700;
+        align-items: center; justify-content: center;
+      "></span>
     </button>
   </div>
 
@@ -692,11 +764,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         <div class="table-wrapper">
           <!-- Date Range Filter -->
           <div style="display: flex; gap: 12px; margin-bottom: 12px; flex-wrap: wrap; align-items: center;">
-            <label style="font-size: 0.85rem; color: var(--text-muted);">Filtrar por fecha:</label>
-            <input type="date" id="date-from" style="padding: 6px 8px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-primary); font-size: 0.85rem;" />
-            <span style="color: var(--text-muted);">hasta</span>
-            <input type="date" id="date-to" style="padding: 6px 8px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-primary); font-size: 0.85rem;" />
-            <button id="btn-clear-filters" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-primary); font-size: 0.85rem; cursor: pointer;">Limpiar</button>
+            <label style="font-size: 0.85rem; color: var(--text-mut);">Filtrar por fecha:</label>
+            <input type="date" id="date-from" style="padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 0.85rem;" />
+            <span style="color: var(--text-mut);">hasta</span>
+            <input type="date" id="date-to" style="padding: 6px 8px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 0.85rem;" />
+            <button id="btn-clear-filters" style="padding: 6px 12px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 0.85rem; cursor: pointer;">Limpiar</button>
           </div>
           <!-- Search Bar (fixed position while scrolling) -->
           <div class="table-controls">
@@ -708,11 +780,33 @@ https://github.com/nodeca/pako/blob/main/LICENSE
           </table>
           <!-- Pagination -->
           <div style="display: flex; gap: 12px; margin-top: 12px; justify-content: center;">
-            <button id="btn-load-more" style="padding: 8px 16px; border-radius: 6px; border: 1px solid var(--color-border); background: var(--color-surface); color: var(--color-text-primary); font-size: 0.85rem; cursor: pointer; display: none;">Cargar más</button>
-            <span id="pagination-info" style="color: var(--text-muted); font-size: 0.85rem;"></span>
+            <button id="btn-load-more" style="padding: 8px 16px; border-radius: 6px; border: 1px solid var(--border); background: var(--surface); color: var(--text); font-size: 0.85rem; cursor: pointer; display: none;">Cargar más</button>
+            <span id="pagination-info" style="color: var(--text-mut); font-size: 0.85rem;"></span>
           </div>
         </div>
       </div>
+    </div>
+  </div>
+
+  <!-- PANEL: REVISIÓN ──────────────────────────────── -->
+  <div id="panel-revision" class="panel">
+    <div class="card">
+      <p class="card-title">
+        <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2" stroke-linecap="round" stroke-linejoin="round"><circle cx="12" cy="12" r="9"/><path d="M8.5 12.5l2.5 2.5 4.5-5"/></svg>
+        Revisión — Validación de Contenedor
+      </p>
+      <div class="subtitle" style="font-size: 12px; color: var(--text-mut); margin-bottom: 16px;">
+        Segundo check para los registros marcados como Incorrecto. Confirma si realmente
+        es una incidencia, o corrige si el shipment estaba bien.
+      </div>
+
+      <div id="revision-permission-row" style="display: flex; align-items: center; gap: 10px; margin-bottom: 16px;"></div>
+
+      <div id="revision-empty" class="empty-state" style="display: none;">
+        <p>No hay registros pendientes de revisión.</p>
+      </div>
+
+      <div id="revision-list"></div>
     </div>
   </div>
 
@@ -981,6 +1075,8 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       this.dateFrom = null;
       this.dateTo = null;
       this.displayedCount = 10;
+      // Revisión (segundo check de Incorrectos) + alertas
+      this._knownPendingUids = null; // null = todavía no se estableció la línea base
       this.init();
     }
 
@@ -1001,6 +1097,10 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         this.currentLog = Object.entries(this.logs).find(([, r]) => r.length > 0)[0];
         this.switchMainTab('analysis');
       }
+
+      this.renderRevisionPermissionUI();
+      this.pollForRevisionAlerts(); // primer poll: establece la línea base sin alertar
+      setInterval(() => this.pollForRevisionAlerts(), 15000);
     }
 
     async isAdmin() {
@@ -1051,6 +1151,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
       document.getElementById('main-tab-upload').addEventListener('click', () => this.switchMainTab('upload'));
       document.getElementById('main-tab-analysis').addEventListener('click', () => this.switchMainTab('analysis'));
+      document.getElementById('main-tab-revision').addEventListener('click', () => this.switchMainTab('revision'));
 
       // Date filters
       document.getElementById('date-from').addEventListener('change', (e) => {
@@ -1083,14 +1184,20 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       this.activeMainTab = tabName;
       document.getElementById('panel-upload').classList.toggle('active', tabName === 'upload');
       document.getElementById('panel-analysis').classList.toggle('active', tabName === 'analysis');
+      document.getElementById('panel-revision').classList.toggle('active', tabName === 'revision');
       document.getElementById('main-tab-upload').classList.toggle('active', tabName === 'upload');
       document.getElementById('main-tab-analysis').classList.toggle('active', tabName === 'analysis');
+      document.getElementById('main-tab-revision').classList.toggle('active', tabName === 'revision');
       // render() vuelve a dibujar las gráficas (ver renderAnalysis): Plotly
       // calcula dimensiones en el momento de dibujar, así que si el panel
       // estaba oculto (display:none) antes, el gráfico queda mal dimensionado
       // y no se autocorrige solo al mostrarse — hay que redibujar con el
       // panel ya visible.
-      this.render();
+      if (tabName === 'revision') {
+        this.renderRevisionTab();
+      } else {
+        this.render();
+      }
     }
 
     async loadAllLogs() {
@@ -1965,6 +2072,208 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     getLogTitle(logType) {
       const config = FORMS_CONFIG[logType];
       return config?.title || logType;
+    }
+
+    /* ====================================================================== */
+    /* Revisión (segundo check de "Incorrecto" en Validación de Contenedor)   */
+    /* ====================================================================== */
+
+    /** Registros de Contenedor marcados Incorrecto que aún no tienen revisión. */
+    getPendingRevisionRecords() {
+      const records = this.logs.contenedor || [];
+      return records
+        .filter(r => r.resultado === 'Incorrecto' && !r.revision_estado)
+        .sort((a, b) => new Date(b.ts || 0) - new Date(a.ts || 0));
+    }
+
+    /**
+     * Botón para pedir permiso de notificaciones — requiere un gesto real
+     * del usuario (click), los navegadores bloquean pedirlo solo. Una vez
+     * concedido, queda persistente para el origen (no hay que repetirlo
+     * cada sesión).
+     */
+    renderRevisionPermissionUI() {
+      const row = document.getElementById('revision-permission-row');
+      if (!row) return;
+
+      const supported = typeof Notification !== 'undefined';
+      const permission = supported ? Notification.permission : 'unsupported';
+
+      if (!supported) {
+        row.innerHTML = `<div class="alert warning" style="margin:0;">Este navegador no soporta notificaciones — solo verás los pendientes al tener esta pestaña abierta en "Revisión".</div>`;
+        return;
+      }
+
+      if (permission === 'granted') {
+        row.innerHTML = `<div class="alert success" style="margin:0;">Alertas activas — te avisamos apenas llegue un nuevo Incorrecto, aunque no estés viendo esta pestaña.</div>`;
+        return;
+      }
+
+      if (permission === 'denied') {
+        row.innerHTML = `<div class="alert error" style="margin:0;">Notificaciones bloqueadas por el navegador. Actívalas desde los ajustes del sitio para recibir alertas.</div>`;
+        return;
+      }
+
+      row.innerHTML = `<button class="btn-secondary" id="btn-enable-alerts">Activar alertas de revisión</button>`;
+      document.getElementById('btn-enable-alerts').addEventListener('click', async () => {
+        const result = await Notification.requestPermission();
+        this.renderRevisionPermissionUI();
+        if (result === 'granted') {
+          this.showNotification('Alertas activadas', 'success');
+        }
+      });
+    }
+
+    /**
+     * Poll periódico a contenedor_master para detectar nuevos "Incorrecto"
+     * pendientes de revisión. El primer poll solo establece la línea base
+     * (_knownPendingUids) sin disparar alertas — de lo contrario, cada
+     * apertura del dashboard dispararía una notificación por cada
+     * pendiente ya existente, en vez de solo por los que lleguen después.
+     */
+    async pollForRevisionAlerts() {
+      try {
+        const bucket = await this.gridClient.getStateBucket('contenedor_master');
+        const records = (bucket && bucket.records) || [];
+        this.logs.contenedor = records;
+
+        const pending = records.filter(r => r.resultado === 'Incorrecto' && !r.revision_estado);
+        const pendingUids = new Set(pending.map(r => r.uid));
+
+        if (this._knownPendingUids) {
+          const newOnes = pending.filter(r => !this._knownPendingUids.has(r.uid));
+          newOnes.forEach(r => this.fireRevisionAlert(r));
+        }
+        this._knownPendingUids = pendingUids;
+
+        const badge = document.getElementById('revision-count-badge');
+        if (badge) {
+          badge.style.display = pending.length > 0 ? 'inline-flex' : 'none';
+          badge.textContent = pending.length > 9 ? '9+' : String(pending.length);
+        }
+
+        if (this.activeMainTab === 'revision') {
+          this.renderRevisionTab();
+        }
+      } catch (e) {
+        console.error('Error en poll de revisión:', e);
+      }
+    }
+
+    fireRevisionAlert(record) {
+      if (typeof Notification === 'undefined' || Notification.permission !== 'granted') return;
+      const n = new Notification('Nuevo Incorrecto — Contenedor', {
+        body: `Shipment ${record.shipment || '(sin ID)'} · ${record.motivo || 'Requiere revisión'}`,
+        tag: `contenedor-revision-${record.uid}`,
+      });
+      n.onclick = () => {
+        window.focus();
+        this.switchMainTab('revision');
+      };
+    }
+
+    renderRevisionTab() {
+      const listEl = document.getElementById('revision-list');
+      const emptyEl = document.getElementById('revision-empty');
+      if (!listEl || !emptyEl) return;
+
+      const pending = this.getPendingRevisionRecords();
+
+      if (pending.length === 0) {
+        listEl.innerHTML = '';
+        emptyEl.style.display = 'block';
+        return;
+      }
+      emptyEl.style.display = 'none';
+
+      listEl.innerHTML = '';
+      pending.forEach((record) => {
+        const card = document.createElement('div');
+        card.className = 'revision-card';
+
+        const when = record.ts ? new Date(record.ts).toLocaleString('es-MX') : '';
+        card.innerHTML = `
+          <div class="revision-card-header">
+            <div>
+              <div class="revision-card-shipment">${record.shipment || '(sin ID)'}</div>
+              <div class="revision-card-meta">Doca ${record.doca_auditada || '—'} · ${record.auditoria || ''} · ${when}</div>
+            </div>
+          </div>
+          <div class="revision-card-motivo">${record.motivo || ''}</div>
+          <div class="revision-card-actions"></div>
+        `;
+
+        const actions = card.querySelector('.revision-card-actions');
+
+        if (this.recordHasPhotos('contenedor', record)) {
+          const viewBtn = document.createElement('button');
+          viewBtn.className = 'btn-revision btn-revision-view';
+          viewBtn.innerHTML = `${SVG_ICONS.image}<span>Ver foto</span>`;
+          viewBtn.addEventListener('click', () => this.viewRecordPhotos('contenedor', record));
+          actions.appendChild(viewBtn);
+        }
+
+        const confirmBtn = document.createElement('button');
+        confirmBtn.className = 'btn-revision btn-revision-incorrect';
+        confirmBtn.textContent = 'Confirmar Incorrecto';
+        confirmBtn.addEventListener('click', () => this.reviewRecord(record.uid, 'confirmado_incorrecto'));
+
+        const correctBtn = document.createElement('button');
+        correctBtn.className = 'btn-revision btn-revision-correct';
+        correctBtn.textContent = 'Marcar Correcto';
+        correctBtn.addEventListener('click', () => this.reviewRecord(record.uid, 'marcado_correcto'));
+
+        actions.appendChild(confirmBtn);
+        actions.appendChild(correctBtn);
+
+        listEl.appendChild(card);
+      });
+    }
+
+    /**
+     * Guarda la decisión del segundo check (uid-based, no toca resultado
+     * original — se conserva como registró el auditor, la revisión queda
+     * en campos aparte para no perder el rastro de auditoría). Relee el
+     * bucket fresco en cada intento y reintenta en conflicto (409), igual
+     * que el resto de las escrituras a State Buckets.
+     */
+    async reviewRecord(uid, decision, attempt = 0) {
+      const bucket = (await this.gridClient.getStateBucket('contenedor_master')) || { records: [] };
+      if (!bucket.records) bucket.records = [];
+      const idx = bucket.records.findIndex(r => r.uid === uid);
+      if (idx < 0) {
+        this.showNotification('Registro no encontrado — puede que ya se haya revisado', 'error');
+        this.renderRevisionTab();
+        return;
+      }
+
+      const me = await this.gridClient.getMe();
+      bucket.records[idx] = {
+        ...bucket.records[idx],
+        revision_estado: decision,
+        revisor: (me && me.email) || '',
+        revision_ts: new Date().toISOString(),
+      };
+
+      const result = await this.gridClient.setStateBucket('contenedor_master', bucket);
+      if (result && result.conflict) {
+        if (attempt >= 5) {
+          this.showNotification('Demasiados conflictos de escritura — intenta de nuevo', 'error');
+          return;
+        }
+        await new Promise(r => setTimeout(r, 300 + Math.random() * 300));
+        return this.reviewRecord(uid, decision, attempt + 1);
+      }
+
+      this.logs.contenedor = bucket.records;
+      this.showNotification(
+        decision === 'confirmado_incorrecto' ? 'Confirmado como Incorrecto' : 'Marcado como Correcto',
+        'success'
+      );
+      this.renderRevisionTab();
+      if (this.currentLog === 'contenedor' && this.activeMainTab === 'analysis') {
+        this.render();
+      }
     }
   }
 
