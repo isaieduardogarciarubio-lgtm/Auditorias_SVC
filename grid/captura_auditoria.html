@@ -1824,10 +1824,20 @@ const ScanUI = (() => {
     if (window.app && window.app.setScanMode) return window.app.setScanMode(m);
   }
 
+  // Refleja el modo actual en las clases "active" de un toggle ya
+  // construido — se llama tras cada cambio de modo para que el botón
+  // resaltado siempre corresponda al modo realmente activo, en vez de
+  // quedar congelado en el estado que tenía al momento de crearse.
+  function refreshToggle(wrap) {
+    const current = mode();
+    wrap.querySelectorAll('.scan-mode-btn').forEach((btn) => {
+      btn.classList.toggle('active', btn.dataset.scanMode === current);
+    });
+  }
+
   // Control segmentado Handheld / Cámara. onChange(nuevoModo) se llama
   // después de persistir, para que el llamador re-renderice su pantalla.
   function buildToggle(onChange) {
-    const current = mode();
     const wrap = document.createElement('div');
     wrap.className = 'scan-mode-toggle';
 
@@ -1837,23 +1847,30 @@ const ScanUI = (() => {
     ].forEach((opt) => {
       const btn = document.createElement('button');
       btn.type = 'button';
-      btn.className = `scan-mode-btn ${current === opt.id ? 'active' : ''}`;
+      btn.className = 'scan-mode-btn';
+      btn.dataset.scanMode = opt.id;
       btn.innerHTML = `${Icons.svg(opt.icon, { size: 16 })}<span>${opt.label}</span>`;
       btn.addEventListener('click', () => {
         if (mode() === opt.id) return;
-        Promise.resolve(setMode(opt.id)).finally(() => onChange && onChange(opt.id));
+        Promise.resolve(setMode(opt.id)).finally(() => {
+          refreshToggle(wrap);
+          onChange && onChange(opt.id);
+        });
       });
       wrap.appendChild(btn);
     });
 
+    refreshToggle(wrap);
     return wrap;
   }
 
   // Entrada handheld: input enfocado y auto-reenfocado (el lector HID solo
   // escribe donde está el foco) que normaliza a mayúsculas y procesa en
-  // Enter. isActive() evita reenfocar si la pantalla cambió de modo.
-  // inputMode="none" bloquea el teclado virtual (el lector HID no lo
-  // necesita, y taparía la pantalla en cada foco).
+  // Enter. isActive() evita reenfocar si la pantalla cambió de modo. Sin
+  // inputMode="none": aunque el lector físico no lo necesita, bloquear el
+  // teclado virtual deja sin forma de escribir manualmente cuando no hay
+  // lector conectado (el teclado virtual no interfiere con un lector HID
+  // real — este solo emula pulsaciones de teclado, indistinto del origen).
   function buildHandheldInput({ placeholder, onSubmit, isActive, uppercase = true }) {
     const wrap = document.createElement('div');
     wrap.className = 'step-input-wrap';
@@ -1864,7 +1881,6 @@ const ScanUI = (() => {
     input.setAttribute('autocomplete', 'off');
     input.setAttribute('autocorrect', 'off');
     input.setAttribute('autocapitalize', uppercase ? 'characters' : 'off');
-    input.setAttribute('inputMode', 'none');
     input.spellcheck = false;
     wrap.appendChild(input);
 
@@ -3299,9 +3315,17 @@ class ContenedorAuditSession {
     } else {
       this.vibrate([40, 60, 40]);
       await this.flash('error', 550);
-      await this.captureEvidence(record);
-      await this.saveRecord(record);
+      // Antes de exigir la foto, el operador puede "Reintentar escaneo":
+      // por si el código se leyó mal o escaneó el shipment equivocado, sin
+      // eso quedaría obligado a documentar como evidencia un error de
+      // lectura que no es una incidencia real.
+      const { cancelled } = await this.captureEvidence(record);
       this._busy = false;
+      if (cancelled) {
+        this.resumeForNextScan();
+        return;
+      }
+      await this.saveRecord(record);
       this.resumeForNextScan();
     }
   }
@@ -3373,7 +3397,8 @@ class ContenedorAuditSession {
 
     if (!PhotoCamera.isSupported()) {
       this.setLoopActions([
-        this.makeButton('Reintentar', { primary: true, icon: 'refresh', onClick: () => this.enterEvidenceCamera(record, resolve) }),
+        this.makeButton('Reintentar escaneo', { icon: 'refresh', onClick: () => resolve({ cancelled: true }) }),
+        this.makeButton('Reintentar cámara', { primary: true, icon: 'refresh', onClick: () => this.enterEvidenceCamera(record, resolve) }),
       ]);
       return;
     }
@@ -3383,7 +3408,12 @@ class ContenedorAuditSession {
     try {
       await this.photoCamera.start(video);
     } catch (e) {
-      this.enterEvidenceCamera(record, resolve, 'No se pudo abrir la cámara. Revisa el permiso e intenta de nuevo.');
+      this.supportEl.textContent = 'No se pudo abrir la cámara. Revisa el permiso e intenta de nuevo.';
+      this.supportEl.classList.add('error');
+      this.setLoopActions([
+        this.makeButton('Reintentar escaneo', { icon: 'refresh', onClick: () => resolve({ cancelled: true }) }),
+        this.makeButton('Reintentar cámara', { primary: true, icon: 'refresh', onClick: () => this.enterEvidenceCamera(record, resolve) }),
+      ]);
       return;
     }
 
@@ -3420,10 +3450,24 @@ class ContenedorAuditSession {
         this.photoCamera.stop();
         this.photoCamera = null;
       }
-      resolve();
+      resolve({ cancelled: false });
     });
     this.scannerBody.appendChild(shutter);
-    this.setLoopActions([]);
+
+    // "Reintentar escaneo": por si el código se leyó mal o era el
+    // shipment equivocado, cancela sin guardar nada y vuelve a escanear.
+    this.setLoopActions([
+      this.makeButton('Reintentar escaneo', {
+        icon: 'refresh',
+        onClick: () => {
+          if (this.photoCamera) {
+            this.photoCamera.stop();
+            this.photoCamera = null;
+          }
+          resolve({ cancelled: true });
+        },
+      }),
+    ]);
   }
 
   async saveRecord(record) {
