@@ -605,6 +605,61 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
     @keyframes spin { to { transform: rotate(360deg); } }
 
+    /* ── OVERLAY BLOQUEANTE (micro-orb fluida) ── */
+    .loading-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0, 0, 0, .6);
+      z-index: 3000;
+      align-items: center;
+      justify-content: center;
+    }
+    .loading-overlay.active { display: flex; }
+    .loading-overlay-content {
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      background: var(--surface);
+      border: 1px solid var(--border);
+      padding: 16px 24px;
+      border-radius: var(--r-md);
+      font-size: 14px;
+      font-weight: 600;
+      color: var(--text);
+    }
+    .loading-orb {
+      width: 22px; height: 22px;
+      border-radius: 50%;
+      background: #27272a;
+      flex-shrink: 0;
+      transition: all .4s ease;
+    }
+    .loading-orb.saving {
+      background: radial-gradient(circle at 30% 30%, #a855f7, #3b82f6, #06b6d4);
+      filter: blur(1px);
+      box-shadow: 0 0 12px rgba(168, 85, 247, .6);
+      animation: loading-orb-morph 2s infinite alternate, loading-orb-spin 3s linear infinite;
+    }
+    .loading-orb.saved {
+      background: var(--c-green);
+      filter: blur(0);
+      box-shadow: 0 0 10px rgba(0, 214, 137, .6);
+      transform: scale(1.15);
+      animation: none;
+    }
+    .loading-orb.error {
+      background: var(--c-red);
+      filter: blur(0);
+      box-shadow: 0 0 10px rgba(255, 92, 108, .6);
+      animation: none;
+    }
+    @keyframes loading-orb-morph {
+      0% { border-radius: 40% 60% 60% 40% / 60% 30% 70% 40%; }
+      100% { border-radius: 60% 40% 30% 70% / 50% 60% 30% 60%; }
+    }
+    @keyframes loading-orb-spin { 100% { transform: rotate(360deg); } }
+
     :focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
     @media (prefers-reduced-motion: reduce) { * { transition: none !important; } }
     @media (max-width: 640px) {
@@ -820,6 +875,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       <button class="modal-close" id="photo-modal-close">&times;</button>
     </div>
     <div id="photo-modal-body" style="display: flex; flex-direction: column; gap: 12px;"></div>
+  </div>
+</div>
+
+<!-- Overlay bloqueante para cualquier proceso de carga/guardado (publicar
+     catálogo, actualizar logs, revisar, borrar): cubre toda la pantalla
+     mientras dura la operación para que no se pueda disparar dos veces. -->
+<div id="loading-overlay" class="loading-overlay">
+  <div class="loading-overlay-content">
+    <div id="loading-orb" class="loading-orb"></div>
+    <span id="loading-overlay-text">Cargando...</span>
   </div>
 </div>
 
@@ -1055,6 +1120,57 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     'isaieduardo.garciarubio@mercadolibre.com.mx',
   ];
 
+  /**
+   * LoadingOverlay — bloqueo visual de pantalla completa para cualquier
+   * proceso de carga/guardado del dashboard (publicar catálogo, actualizar
+   * logs, revisar, borrar). El backdrop cubre todo y captura los clicks,
+   * así que nada por debajo es interactuable hasta que se oculta.
+   */
+  const LoadingOverlay = (() => {
+    let overlayEl, orbEl, textEl, hideTimer;
+
+    function refs() {
+      if (!overlayEl) {
+        overlayEl = document.getElementById('loading-overlay');
+        orbEl = document.getElementById('loading-orb');
+        textEl = document.getElementById('loading-overlay-text');
+      }
+      return !!overlayEl;
+    }
+
+    function show(text = 'Cargando...') {
+      if (!refs()) return;
+      clearTimeout(hideTimer);
+      overlayEl.classList.add('active');
+      orbEl.className = 'loading-orb saving';
+      textEl.textContent = text;
+    }
+
+    function success(text = 'Listo', autoHideMs = 500) {
+      if (!refs()) return;
+      orbEl.className = 'loading-orb saved';
+      textEl.textContent = text;
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hide, autoHideMs);
+    }
+
+    function error(text = 'Error', autoHideMs = 1600) {
+      if (!refs()) return;
+      orbEl.className = 'loading-orb error';
+      textEl.textContent = text;
+      clearTimeout(hideTimer);
+      hideTimer = setTimeout(hide, autoHideMs);
+    }
+
+    function hide() {
+      if (!refs()) return;
+      clearTimeout(hideTimer);
+      overlayEl.classList.remove('active');
+    }
+
+    return { show, success, error, hide };
+  })();
+
   // ==========================================================================
   // AuditDashboard
   // ==========================================================================
@@ -1194,6 +1310,11 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       // y no se autocorrige solo al mostrarse — hay que redibujar con el
       // panel ya visible.
       if (tabName === 'revision') {
+        // Revisión solo aplica a Validación de Contenedor: las píldoras de
+        // log (Contenedor/RTS/Double-Check HV/Damaged) son de Análisis y
+        // no deben quedar visibles aquí — render() las oculta normalmente,
+        // pero acá no se llama render(), así que hay que ocultarlas a mano.
+        document.getElementById('log-tabs').style.display = 'none';
         this.renderRevisionTab();
       } else {
         this.render();
@@ -1274,12 +1395,15 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (btn.classList.contains('spinning')) return; // evitar recargas dobles
       btn.classList.add('spinning');
       btn.disabled = true;
+      LoadingOverlay.show('Actualizando...');
       try {
         await this.loadAllLogs();
         const total = Object.values(this.logs).reduce((sum, r) => sum + r.length, 0);
         this.showNotification(`Actualizado · ${total} registro${total === 1 ? '' : 's'}`, 'success');
+        LoadingOverlay.success('Actualizado');
       } catch (e) {
         this.showNotification('No se pudo actualizar', 'error');
+        LoadingOverlay.error('Error al actualizar');
       } finally {
         btn.classList.remove('spinning');
         btn.disabled = false;
@@ -1295,12 +1419,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
 
     async publishCatalog(file) {
+      LoadingOverlay.show('Publicando catálogo...');
       try {
         const text = await file.text();
         const { headers, records: rawRecords } = parseCSV(text);
 
         if (rawRecords.length === 0) {
           this.showAlert('uploadAlert', 'error', 'CSV vacío');
+          LoadingOverlay.hide();
           return;
         }
 
@@ -1316,10 +1442,12 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         if (!idCol || !estatusCol) {
           this.showAlert('uploadAlert', 'error', 'Columnas requeridas: ID, ESTATUS, OPTIMIZADA, DOCA, MLP');
+          LoadingOverlay.hide();
           return;
         }
         if (!docaCol) {
           this.showAlert('uploadAlert', 'error', 'Falta la columna DOCA — necesaria para validar la doca en Captura');
+          LoadingOverlay.hide();
           return;
         }
 
@@ -1343,16 +1471,19 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         });
 
         if (result?.conflict) {
+          // Sigue "cargando" — el overlay se mantiene hasta que el reintento resuelva.
           setTimeout(() => this.publishCatalog(file), 500 + Math.random() * 500);
           return;
         }
 
         if (!result) {
           this.showAlert('uploadAlert', 'error', 'No se pudo publicar el catálogo (ver consola)');
+          LoadingOverlay.error('Error al publicar');
           return;
         }
 
         this.showAlert('uploadAlert', 'success', `Catálogo publicado: ${Object.keys(index).length} shipments`);
+        LoadingOverlay.success('Catálogo publicado');
 
         // Actualizar el estado visual del catálogo
         await this.loadCatalogStatus();
@@ -1360,6 +1491,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         console.error('Error al publicar catálogo:', error);
         DebugConsole.log(`publishCatalog falló: ${error.message}`, 'error');
         this.showAlert('uploadAlert', 'error', `Error: ${error.message}`);
+        LoadingOverlay.error('Error al publicar');
       }
     }
 
@@ -1845,13 +1977,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       // Borrar del array local
       records.splice(recordIndex, 1);
 
+      LoadingOverlay.show('Borrando...');
       // Actualizar el bucket en Grid
       try {
         await this.gridClient.setStateBucket(`${logType}_master`, { version: 1, records });
         this.showNotification('Registro borrado exitosamente', 'success');
+        LoadingOverlay.success('Borrado');
       } catch (error) {
         records.splice(recordIndex, 0, deletedRecord); // Restaurar si falla
         this.showNotification('Error al borrar: ' + error.message, 'error');
+        LoadingOverlay.error('Error al borrar');
         return;
       }
 
@@ -2208,7 +2343,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         if (this.recordHasPhotos('contenedor', record)) {
           const viewBtn = document.createElement('button');
           viewBtn.className = 'btn-revision btn-revision-view';
-          viewBtn.innerHTML = `${SVG_ICONS.image}<span>Ver foto</span>`;
+          viewBtn.innerHTML = `<span>Ver foto</span>`;
           viewBtn.addEventListener('click', () => this.viewRecordPhotos('contenedor', record));
           actions.appendChild(viewBtn);
         }
@@ -2238,11 +2373,14 @@ https://github.com/nodeca/pako/blob/main/LICENSE
      * que el resto de las escrituras a State Buckets.
      */
     async reviewRecord(uid, decision, attempt = 0) {
+      if (attempt === 0) LoadingOverlay.show('Guardando revisión...');
+
       const bucket = (await this.gridClient.getStateBucket('contenedor_master')) || { records: [] };
       if (!bucket.records) bucket.records = [];
       const idx = bucket.records.findIndex(r => r.uid === uid);
       if (idx < 0) {
         this.showNotification('Registro no encontrado — puede que ya se haya revisado', 'error');
+        LoadingOverlay.error('No encontrado');
         this.renderRevisionTab();
         return;
       }
@@ -2259,6 +2397,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       if (result && result.conflict) {
         if (attempt >= 5) {
           this.showNotification('Demasiados conflictos de escritura — intenta de nuevo', 'error');
+          LoadingOverlay.error('Demasiados conflictos');
           return;
         }
         await new Promise(r => setTimeout(r, 300 + Math.random() * 300));
@@ -2270,6 +2409,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         decision === 'confirmado_incorrecto' ? 'Confirmado como Incorrecto' : 'Marcado como Correcto',
         'success'
       );
+      LoadingOverlay.success('Revisión guardada');
       this.renderRevisionTab();
       if (this.currentLog === 'contenedor' && this.activeMainTab === 'analysis') {
         this.render();
