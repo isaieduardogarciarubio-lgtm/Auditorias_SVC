@@ -617,6 +617,61 @@ select.step-input {
   color: #000000;
 }
 
+/* Toggle de modo de escaneo: Handheld (lector integrado) vs Cámara */
+
+.scan-mode-toggle {
+  display: flex;
+  gap: 4px;
+  background: var(--color-surface);
+  border-radius: var(--radius-pill);
+  padding: 4px;
+  margin-bottom: var(--spacing-md);
+}
+
+.scan-mode-btn {
+  flex: 1;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 6px;
+  border: none;
+  background: transparent;
+  color: var(--color-text-muted);
+  border-radius: var(--radius-pill);
+  padding: 8px 12px;
+  font-size: 0.85rem;
+  font-weight: 600;
+  cursor: pointer;
+  transition: background 0.12s ease, color 0.12s ease;
+}
+
+.scan-mode-btn.active {
+  background: var(--color-text-primary);
+  color: var(--color-bg);
+}
+
+/* Cámara in-app para foto (getUserMedia + obturador), evita la cámara
+   externa que bloquea la handheld/MDM. Reusa .scanner-viewport/.scanner-video. */
+
+.photo-cam-shutter {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  width: 100%;
+  margin-top: var(--spacing-md);
+  padding: var(--spacing-md);
+  border: none;
+  border-radius: var(--radius-popover);
+  background: var(--color-text-primary);
+  color: var(--color-bg);
+  font-size: var(--font-button);
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.photo-cam-shutter:disabled { opacity: 0.5; }
+
 .scanner-result {
   display: flex;
   flex-direction: column;
@@ -1087,9 +1142,10 @@ const Icons = (() => {
  */
 class RecordStore {
   static DB_NAME = 'auditorias_svc_db';
-  static DB_VERSION = 2;
+  static DB_VERSION = 3;
   static STORE = 'records';
   static HISTORY_STORE = 'history';
+  static SETTINGS_STORE = 'settings';
   static _dbPromise = null;
 
   static open() {
@@ -1106,11 +1162,44 @@ class RecordStore {
           const history = db.createObjectStore(this.HISTORY_STORE, { keyPath: 'uid' });
           history.createIndex('ts', 'ts', { unique: false });
         }
+        // Preferencias por dispositivo (ej. modo de escaneo handheld/cámara).
+        // Sin localStorage (regla de la Biblia): se guarda en IndexedDB.
+        if (!db.objectStoreNames.contains(this.SETTINGS_STORE)) {
+          db.createObjectStore(this.SETTINGS_STORE, { keyPath: 'key' });
+        }
       };
       req.onsuccess = () => resolve(req.result);
       req.onerror = () => reject(req.error);
     });
     return this._dbPromise;
+  }
+
+  static async getSetting(key) {
+    const db = await this.open();
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(this.SETTINGS_STORE, 'readonly');
+        const req = tx.objectStore(this.SETTINGS_STORE).get(key);
+        req.onsuccess = () => resolve(req.result ? req.result.value : undefined);
+        req.onerror = () => resolve(undefined);
+      } catch (e) {
+        resolve(undefined);
+      }
+    });
+  }
+
+  static async setSetting(key, value) {
+    const db = await this.open();
+    return new Promise((resolve) => {
+      try {
+        const tx = db.transaction(this.SETTINGS_STORE, 'readwrite');
+        tx.objectStore(this.SETTINGS_STORE).put({ key, value });
+        tx.oncomplete = () => resolve();
+        tx.onerror = () => resolve();
+      } catch (e) {
+        resolve();
+      }
+    });
   }
 
   static genUid(formId) {
@@ -1633,41 +1722,183 @@ class ScannerEngine {
 }
 
 /**
- * Comprime una foto a WebP (fallback JPEG si el navegador no soporta
- * codificar WebP en canvas) — compartida entre FormEngine (fototipo
- * genérico) y ContenedorAuditSession (evidencia del loop de escaneo).
+ * PhotoCamera — captura de foto DENTRO de la app vía getUserMedia (preview
+ * en vivo + obturador → frame a canvas comprimido). No lanza la app de
+ * cámara del sistema (input capture), que la handheld/MDM bloquea; usa el
+ * mismo permiso de cámara que ya concede el navegador para el escáner.
  */
-function compressImageFile(file, { maxDim = 1280, quality = 0.6 } = {}) {
-  return new Promise((resolve, reject) => {
-    const url = URL.createObjectURL(file);
-    const img = new Image();
-    img.onload = () => {
-      URL.revokeObjectURL(url);
-      let { width, height } = img;
-      if (width > maxDim || height > maxDim) {
-        const scale = maxDim / Math.max(width, height);
-        width = Math.round(width * scale);
-        height = Math.round(height * scale);
-      }
-      const canvas = document.createElement('canvas');
-      canvas.width = width;
-      canvas.height = height;
-      const ctx = canvas.getContext('2d');
-      ctx.drawImage(img, 0, 0, width, height);
-      try {
-        const webp = canvas.toDataURL('image/webp', quality);
-        resolve(webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', quality));
-      } catch (e) {
-        reject(e);
-      }
-    };
-    img.onerror = () => {
-      URL.revokeObjectURL(url);
-      reject(new Error('No se pudo cargar la imagen'));
-    };
-    img.src = url;
-  });
+class PhotoCamera {
+  constructor() {
+    this.stream = null;
+    this.videoEl = null;
+    this.track = null;
+  }
+
+  static isSupported() {
+    return typeof navigator !== 'undefined' && !!navigator.mediaDevices && !!navigator.mediaDevices.getUserMedia;
+  }
+
+  async start(videoEl) {
+    this.videoEl = videoEl;
+    // Constraints simples (solo facingMode) — igual que ScannerEngine.
+    // Pedir width/height ideales rompe con "constraint error" en algunos
+    // dispositivos handheld.
+    this.stream = await navigator.mediaDevices.getUserMedia({
+      video: { facingMode: { ideal: 'environment' } },
+      audio: false,
+    });
+    this.track = this.stream.getVideoTracks()[0];
+    videoEl.srcObject = this.stream;
+    videoEl.setAttribute('playsinline', 'true');
+    videoEl.muted = true;
+    await videoEl.play().catch(() => {});
+  }
+
+  hasTorch() {
+    if (!this.track || !this.track.getCapabilities) return false;
+    try {
+      return !!this.track.getCapabilities().torch;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  async setTorch(on) {
+    if (!this.hasTorch()) return false;
+    try {
+      await this.track.applyConstraints({ advanced: [{ torch: !!on }] });
+      return true;
+    } catch (e) {
+      return false;
+    }
+  }
+
+  // Toma el frame actual del video y lo devuelve como data URL comprimido
+  // (WebP con fallback a JPEG), escalado a maxDim — mismo formato/tamaño
+  // que producía la compresión desde archivo.
+  capture({ maxDim = 1280, quality = 0.6 } = {}) {
+    const vw = this.videoEl.videoWidth;
+    const vh = this.videoEl.videoHeight;
+    if (!vw || !vh) return null;
+
+    let width = vw;
+    let height = vh;
+    if (width > maxDim || height > maxDim) {
+      const scale = maxDim / Math.max(width, height);
+      width = Math.round(width * scale);
+      height = Math.round(height * scale);
+    }
+    const canvas = document.createElement('canvas');
+    canvas.width = width;
+    canvas.height = height;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(this.videoEl, 0, 0, width, height);
+    const webp = canvas.toDataURL('image/webp', quality);
+    return webp.startsWith('data:image/webp') ? webp : canvas.toDataURL('image/jpeg', quality);
+  }
+
+  stop() {
+    if (this.stream) {
+      this.stream.getTracks().forEach((t) => t.stop());
+      this.stream = null;
+    }
+    if (this.videoEl) this.videoEl.srcObject = null;
+    this.track = null;
+  }
 }
+
+/**
+ * ScanUI — helpers compartidos para el modo de captura de códigos.
+ * Handheld (lector HID integrado que "teclea" el código + Enter) es el modo
+ * principal; Cámara es la alternativa. El toggle es global y se persiste por
+ * dispositivo (window.app.scanMode / setScanMode). Todos los flujos de
+ * escaneo (FormEngine y ContenedorAuditSession) lo usan para renderizar el
+ * mismo control y la misma entrada handheld.
+ */
+const ScanUI = (() => {
+  function mode() {
+    return (window.app && window.app.scanMode) || 'handheld';
+  }
+
+  function setMode(m) {
+    if (window.app && window.app.setScanMode) return window.app.setScanMode(m);
+  }
+
+  // Control segmentado Handheld / Cámara. onChange(nuevoModo) se llama
+  // después de persistir, para que el llamador re-renderice su pantalla.
+  function buildToggle(onChange) {
+    const current = mode();
+    const wrap = document.createElement('div');
+    wrap.className = 'scan-mode-toggle';
+
+    [
+      { id: 'handheld', label: 'Handheld', icon: 'keyboard' },
+      { id: 'camera', label: 'Cámara', icon: 'scan' },
+    ].forEach((opt) => {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.className = `scan-mode-btn ${current === opt.id ? 'active' : ''}`;
+      btn.innerHTML = `${Icons.svg(opt.icon, { size: 16 })}<span>${opt.label}</span>`;
+      btn.addEventListener('click', () => {
+        if (mode() === opt.id) return;
+        Promise.resolve(setMode(opt.id)).finally(() => onChange && onChange(opt.id));
+      });
+      wrap.appendChild(btn);
+    });
+
+    return wrap;
+  }
+
+  // Entrada handheld: input enfocado y auto-reenfocado (el lector HID solo
+  // escribe donde está el foco) que normaliza a mayúsculas y procesa en
+  // Enter. isActive() evita reenfocar si la pantalla cambió de modo.
+  // inputMode="none" bloquea el teclado virtual (el lector HID no lo
+  // necesita, y taparía la pantalla en cada foco).
+  function buildHandheldInput({ placeholder, onSubmit, isActive, uppercase = true }) {
+    const wrap = document.createElement('div');
+    wrap.className = 'step-input-wrap';
+    const input = document.createElement('input');
+    input.type = 'text';
+    input.className = 'step-input';
+    input.placeholder = placeholder || 'Escanea con el lector';
+    input.setAttribute('autocomplete', 'off');
+    input.setAttribute('autocorrect', 'off');
+    input.setAttribute('autocapitalize', uppercase ? 'characters' : 'off');
+    input.setAttribute('inputMode', 'none');
+    input.spellcheck = false;
+    wrap.appendChild(input);
+
+    // Los códigos de barras son dígitos → mayúsculas es inocuo y evita
+    // duplicados por caja. Pero un QR (JSON con claves/valores/base64) NO
+    // debe pasar a mayúsculas: rompería el JSON.parse. Por eso es opcional.
+    if (uppercase) {
+      input.addEventListener('input', () => {
+        const start = input.selectionStart;
+        const end = input.selectionEnd;
+        input.value = input.value.toUpperCase();
+        input.setSelectionRange(start, end);
+      });
+    }
+    input.addEventListener('keydown', (e) => {
+      if (e.key !== 'Enter') return;
+      e.preventDefault();
+      const val = input.value.trim();
+      if (!val) return;
+      onSubmit(val, input);
+    });
+    input.addEventListener('blur', () => {
+      setTimeout(() => {
+        const active = isActive ? isActive() : true;
+        if (active && document.body.contains(input)) input.focus();
+      }, 50);
+    });
+
+    setTimeout(() => input.focus(), 60);
+    return { wrap, input };
+  }
+
+  return { mode, setMode, buildToggle, buildHandheldInput };
+})();
 
 /**
  * FormEngine — Single-screen capture flow
@@ -1734,6 +1965,14 @@ class FormEngine {
     if (this.scanner) {
       this.scanner.stop();
       this.scanner = null;
+    }
+    this.stopPhotoCamera();
+  }
+
+  stopPhotoCamera() {
+    if (this.photoCamera) {
+      this.photoCamera.stop();
+      this.photoCamera = null;
     }
   }
 
@@ -1948,6 +2187,10 @@ class FormEngine {
     h1.textContent = field.label;
     screen.appendChild(h1);
 
+    // Toggle Handheld / Cámara. Handheld es el modo principal (lector
+    // integrado); al cambiar se persiste y se re-renderiza el cuerpo.
+    screen.appendChild(ScanUI.buildToggle(() => this.applyScanMode(field)));
+
     const body = document.createElement('div');
     body.className = 'scanner-body';
     screen.appendChild(body);
@@ -1961,7 +2204,51 @@ class FormEngine {
     this.scannerBody = body;
     this.supportEl = support;
 
-    this.enterScanningState(field);
+    this.applyScanMode(field);
+  }
+
+  applyScanMode(field) {
+    this.stopScanner();
+    if (ScanUI.mode() === 'camera') {
+      this.enterScanningState(field);
+    } else {
+      this.enterHandheldState(field);
+    }
+  }
+
+  // Modo handheld (principal): input enfocado y auto-reenfocado que recibe
+  // lo que "teclea" el lector integrado y procesa en Enter (misma
+  // validación que la entrada manual). No usa cámara. uppercase se
+  // desactiva para idType 'raw' (ej. QR Driver): puede traer JSON, y
+  // pasarlo a mayúsculas rompería el JSON.parse.
+  enterHandheldState(field) {
+    this.stopScanner();
+    this.supportEl.textContent = 'Modo handheld — escanea con el lector (o escribe y Enter).';
+    this.supportEl.classList.remove('error');
+
+    this.scannerBody.innerHTML = '';
+    const { wrap, input } = ScanUI.buildHandheldInput({
+      placeholder: field.placeholder || 'Escanea el código',
+      uppercase: field.idType !== 'raw',
+      isActive: () => !!this.scannerBody && this.scannerBody.contains(input) && ScanUI.mode() === 'handheld',
+      onSubmit: () => this.confirmManual(field),
+    });
+    input.value = this.values[field.id] || '';
+    this.scannerBody.appendChild(wrap);
+
+    this.currentInput = input;
+    this.inputWrapEl = wrap;
+    this.errorTargetEl = wrap;
+
+    const confirmLabel = field.confirmLabel || (this.isLastStep ? 'Agregar Registro' : 'Continuar');
+    const confirmIcon = field.confirmLabel ? 'arrowRight' : (this.isLastStep ? 'check' : 'arrowRight');
+    const nextBtn = this.makeButton(confirmLabel, {
+      primary: true,
+      icon: confirmIcon,
+      iconAfter: true,
+      onClick: () => this.confirmManual(field),
+    });
+    this.setActions([nextBtn]);
   }
 
   async enterScanningState(field) {
@@ -1976,11 +2263,7 @@ class FormEngine {
       </div>
     `;
 
-    const manualBtn = this.makeButton('Entrada Manual', {
-      icon: 'keyboard',
-      onClick: () => this.enterManualState(field),
-    });
-    this.setActions([manualBtn]);
+    this.setActions([]);
 
     if (!ScannerEngine.isSupported()) {
       this.enterCameraUnavailable(field);
@@ -2016,7 +2299,7 @@ class FormEngine {
     const manualBtn = this.makeButton('Escribir manualmente', {
       primary: true,
       icon: 'keyboard',
-      onClick: () => this.enterManualState(field),
+      onClick: () => this.enterHandheldState(field),
     });
     const uploadBtn = this.makeButton('Escanear desde imagen', {
       icon: 'image',
@@ -2127,7 +2410,7 @@ class FormEngine {
 
     const manualBtn = this.makeButton('Escribir manualmente', {
       icon: 'keyboard',
-      onClick: () => this.enterManualState(field),
+      onClick: () => this.enterHandheldState(field),
     });
     const cameraBtn = this.makeButton('Volver al scanner', {
       primary: true,
@@ -2235,63 +2518,6 @@ class FormEngine {
       },
     });
     this.setActions([retryBtn, confirmBtn]);
-  }
-
-  enterManualState(field, note) {
-    this.stopScanner();
-    this.supportEl.textContent = note || '';
-    this.supportEl.classList.toggle('error', !!note);
-
-    this.scannerBody.innerHTML = '';
-    const inputWrap = document.createElement('div');
-    inputWrap.className = 'step-input-wrap';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'step-input';
-    input.placeholder = field.placeholder || 'Escribe el código';
-    input.value = this.values[field.id] || '';
-    inputWrap.appendChild(input);
-    this.scannerBody.appendChild(inputWrap);
-
-    this.currentInput = input;
-    this.inputWrapEl = inputWrap;
-    this.errorTargetEl = inputWrap;
-
-    input.addEventListener('input', () => this.clearError());
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        this.confirmManual(field);
-      }
-    });
-    // Un lector físico de código de barras (HID: USB/Bluetooth que se
-    // comporta como teclado) solo "escribe" donde esté el foco — si el
-    // operador toca otra parte de la pantalla sin querer, reenfocar evita
-    // que la siguiente lectura se pierda. document.body.contains(input)
-    // evita reenfocar un input que ya no existe (pantalla cambió).
-    input.addEventListener('blur', () => {
-      setTimeout(() => {
-        if (this.currentInput === input && document.body.contains(input)) {
-          input.focus();
-        }
-      }, 50);
-    });
-
-    const cameraBtn = this.makeButton('Usar cámara', {
-      icon: 'scan',
-      onClick: () => this.enterScanningState(field),
-    });
-    const manualLabel = field.confirmLabel || (this.isLastStep ? 'Agregar Registro' : 'Continuar');
-    const manualIcon = field.confirmLabel ? 'arrowRight' : (this.isLastStep ? 'check' : 'arrowRight');
-    const nextBtn = this.makeButton(manualLabel, {
-      primary: true,
-      icon: manualIcon,
-      iconAfter: true,
-      onClick: () => this.confirmManual(field),
-    });
-    this.setActions([cameraBtn, nextBtn]);
-
-    setTimeout(() => input.focus(), 60);
   }
 
   confirmManual(field) {
@@ -2449,46 +2675,98 @@ class FormEngine {
     }
   }
 
-  enterPhotoCapture(field, note) {
-    this.supportEl.textContent = note || 'Toma una foto con la cámara del dispositivo.';
+  async enterPhotoCapture(field, note) {
+    this.stopPhotoCamera();
+    this.supportEl.textContent = note || 'Encuadra y toma la foto con la cámara de la app.';
     this.supportEl.classList.toggle('error', !!note);
 
+    // Cámara DENTRO de la app (getUserMedia): en la handheld la cámara
+    // externa (input capture) está bloqueada por el MDM, así que se usa un
+    // preview en vivo + obturador que captura el frame sin salir de la app.
     this.photoBody.innerHTML = `
-      <button type="button" class="photo-dropzone">
-        <span>${Icons.svg('camera', { size: 30 })}</span>
-        <span class="photo-dropzone-label">Tomar foto</span>
-      </button>
-      <input type="file" accept="image/*" capture="environment" class="photo-input" hidden />
-      <input type="file" accept="image/*" class="photo-input-gallery" hidden />
+      <div class="scanner-viewport">
+        <video class="scanner-video" playsinline muted></video>
+      </div>
     `;
 
-    const dropzone = this.photoBody.querySelector('.photo-dropzone');
-    const cameraInput = this.photoBody.querySelector('.photo-input');
-    const galleryInput = this.photoBody.querySelector('.photo-input-gallery');
+    if (!PhotoCamera.isSupported()) {
+      this.photoCameraUnavailable(field);
+      return;
+    }
 
-    dropzone.addEventListener('click', () => cameraInput.click());
+    const video = this.photoBody.querySelector('.scanner-video');
+    this.photoCamera = new PhotoCamera();
+    try {
+      await this.photoCamera.start(video);
+    } catch (e) {
+      this.photoCameraUnavailable(field);
+      return;
+    }
 
-    const onFile = async (input) => {
-      const file = input.files && input.files[0];
-      if (!file) return;
-      this.supportEl.textContent = 'Procesando imagen...';
-      this.supportEl.classList.remove('error');
-      try {
-        this.values[field.id] = await this.compressImage(file, { maxDim: 1280, quality: 0.6 });
-        this.vibrate(30);
-        this.enterPhotoPreview(field);
-      } catch (e) {
-        this.enterPhotoCapture(field, 'No se pudo procesar la imagen. Intenta de nuevo.');
+    if (this.photoCamera.hasTorch()) {
+      const viewport = this.photoBody.querySelector('.scanner-viewport');
+      const torchBtn = document.createElement('button');
+      torchBtn.type = 'button';
+      torchBtn.className = 'scanner-torch';
+      torchBtn.setAttribute('aria-label', 'Linterna');
+      torchBtn.innerHTML = Icons.svg('flash', { size: 20 });
+      let on = false;
+      torchBtn.addEventListener('click', async () => {
+        on = !on;
+        const ok = await this.photoCamera.setTorch(on);
+        torchBtn.classList.toggle('active', ok && on);
+      });
+      viewport.appendChild(torchBtn);
+    }
+
+    const shutter = document.createElement('button');
+    shutter.type = 'button';
+    shutter.className = 'photo-cam-shutter';
+    shutter.innerHTML = `${Icons.svg('camera', { size: 20 })}<span>Tomar foto</span>`;
+    shutter.addEventListener('click', () => {
+      const data = this.photoCamera && this.photoCamera.capture({ maxDim: 1280, quality: 0.6 });
+      if (!data) {
+        this.supportEl.textContent = 'No se pudo capturar. Intenta de nuevo.';
+        this.supportEl.classList.add('error');
+        return;
       }
-    };
-    cameraInput.addEventListener('change', () => onFile(cameraInput));
-    galleryInput.addEventListener('change', () => onFile(galleryInput));
-
-    const galleryBtn = this.makeButton('Elegir de galería', {
-      icon: 'image',
-      onClick: () => galleryInput.click(),
+      this.values[field.id] = data;
+      this.vibrate(30);
+      this.stopPhotoCamera();
+      this.enterPhotoPreview(field);
     });
-    const buttons = [galleryBtn];
+    this.photoBody.appendChild(shutter);
+
+    const buttons = [];
+    if (!field.required) {
+      buttons.push(this.makeButton('Omitir', {
+        onClick: () => {
+          this.stopPhotoCamera();
+          this.skip();
+        },
+      }));
+    }
+    this.setActions(buttons);
+  }
+
+  photoCameraUnavailable(field) {
+    this.stopPhotoCamera();
+    this.photoBody.innerHTML = `
+      <div class="empty-state">
+        <div class="empty-state-icon">${Icons.svg('alertCircle', { size: 48 })}</div>
+        <p style="font-size: 1rem; margin-bottom: 16px;">Cámara no disponible</p>
+        <p style="font-size: 0.9rem; color: var(--color-text-muted);">No se pudo abrir la cámara de la app. Verifica el permiso de cámara e intenta de nuevo.</p>
+      </div>
+    `;
+    this.supportEl.textContent = 'Cámara no disponible';
+    this.supportEl.classList.add('error');
+
+    const retryBtn = this.makeButton('Reintentar', {
+      primary: true,
+      icon: 'refresh',
+      onClick: () => this.enterPhotoCapture(field),
+    });
+    const buttons = [retryBtn];
     if (!field.required) {
       buttons.unshift(this.makeButton('Omitir', { onClick: () => this.skip() }));
     }
@@ -2521,10 +2799,6 @@ class FormEngine {
       onClick: () => this.advance(),
     });
     this.setActions([retakeBtn, nextBtn]);
-  }
-
-  compressImage(file, opts) {
-    return compressImageFile(file, opts);
   }
 
   /**
@@ -2717,7 +2991,7 @@ class ContenedorAuditSession {
     this.scanner = null;
     this.container = null;
     this.currentSubEngine = null; // FormEngine temporal mientras se pide/cambia la doca
-    this.inputMode = 'camera'; // 'camera' | 'manual' — cuál modo estaba activo en el loop
+    this.inputMode = 'camera'; // 'camera' | 'handheld' — cuál modo estaba activo en el loop
     this._busy = false; // evita procesar dos detecciones mientras se resuelve la anterior
     this.onCancel = null;
   }
@@ -2736,6 +3010,10 @@ class ContenedorAuditSession {
     if (this.scanner) {
       this.scanner.stop();
       this.scanner = null;
+    }
+    if (this.photoCamera) {
+      this.photoCamera.stop();
+      this.photoCamera = null;
     }
   }
 
@@ -2810,7 +3088,6 @@ class ContenedorAuditSession {
   renderScanLoop() {
     this.stopScanner();
     this.currentSubEngine = null;
-    this.inputMode = 'camera';
 
     this.container.innerHTML = `
       <div class="step-screen scanner-screen">
@@ -2823,21 +3100,31 @@ class ContenedorAuditSession {
           </button>
         </div>
         <h1 class="step-question">Escanea el shipment</h1>
+        <div class="scan-mode-slot"></div>
         <div class="scanner-body" id="loop-scanner-body"></div>
-        <div class="step-support" id="loop-support">Escaneando... Apunta la cámara al código.</div>
+        <div class="step-support" id="loop-support"></div>
       </div>
       <div class="audit-flash" id="audit-flash"></div>
     `;
 
     document.getElementById('loop-back-btn').addEventListener('click', () => this.back());
     document.getElementById('doca-pill').addEventListener('click', () => this.promptDoca({ isChange: true }));
+    this.container.querySelector('.scan-mode-slot').replaceWith(ScanUI.buildToggle(() => this.applyScanMode()));
 
     this.scannerBody = document.getElementById('loop-scanner-body');
     this.supportEl = document.getElementById('loop-support');
     this.flashEl = document.getElementById('audit-flash');
     this.errorTargetEl = this.scannerBody;
 
-    this.useCameraMode();
+    this.applyScanMode();
+  }
+
+  applyScanMode() {
+    if (ScanUI.mode() === 'camera') {
+      this.useCameraMode();
+    } else {
+      this.enterHandheldShipment();
+    }
   }
 
   setLoopActions(children) {
@@ -2884,9 +3171,7 @@ class ContenedorAuditSession {
     this.supportEl.textContent = 'Escaneando... Apunta la cámara al código.';
     this.supportEl.classList.remove('error');
     this.showCameraViewport();
-    this.setLoopActions([
-      this.makeButton('Entrada Manual', { icon: 'keyboard', onClick: () => this.enterManualShipment() }),
-    ]);
+    this.setLoopActions([]);
     if (!this.scanner) this.startCamera();
   }
 
@@ -2905,53 +3190,40 @@ class ContenedorAuditSession {
   }
 
   enterCameraUnavailable() {
-    this.supportEl.textContent = 'Cámara no disponible — usa entrada manual.';
+    this.supportEl.textContent = 'Cámara no disponible — usa el modo handheld.';
     this.supportEl.classList.add('error');
-    this.enterManualShipment();
+    this.enterHandheldShipment();
   }
 
-  enterManualShipment(note) {
-    if (this.scanner) this.scanner.pause(); // mantiene el stream vivo para volver rápido a cámara
-    this.inputMode = 'manual';
+  // Modo handheld (principal): lector integrado (HID) escribe el Shipment ID
+  // + Enter en un input enfocado y auto-reenfocado. El scanner de cámara
+  // solo se pausa (no se detiene) para volver rápido si el operador cambia
+  // de modo de nuevo.
+  enterHandheldShipment(note) {
+    if (this.scanner) this.scanner.pause();
+    this.inputMode = 'handheld';
 
     this.scannerBody.innerHTML = '';
-    const inputWrap = document.createElement('div');
-    inputWrap.className = 'step-input-wrap';
-    const input = document.createElement('input');
-    input.type = 'text';
-    input.className = 'step-input';
-    input.placeholder = 'Escribe el Shipment ID';
-    inputWrap.appendChild(input);
-    this.scannerBody.appendChild(inputWrap);
-    this.errorTargetEl = inputWrap;
+    const { wrap, input } = ScanUI.buildHandheldInput({
+      placeholder: 'Escanea el Shipment ID',
+      isActive: () => !!this.scannerBody && this.scannerBody.contains(input) && ScanUI.mode() === 'handheld',
+      onSubmit: (val) => {
+        const parsed = ScanParser.parse(val, 'shipment');
+        if (!parsed) {
+          this.enterHandheldShipment('Formato inválido. Debe ser el Shipment ID (solo dígitos).');
+          return;
+        }
+        input.value = '';
+        this.processShipment(parsed);
+      },
+    });
+    this.scannerBody.appendChild(wrap);
+    this.errorTargetEl = wrap;
 
-    this.supportEl.textContent = note || '';
+    this.supportEl.textContent = note || 'Escanea con el lector o escribe el Shipment ID y Enter.';
     this.supportEl.classList.toggle('error', !!note);
 
-    const confirmManual = () => {
-      const raw = input.value.trim();
-      if (!raw) return;
-      const parsed = ScanParser.parse(raw, 'shipment');
-      if (!parsed) {
-        this.enterManualShipment('Formato inválido. Debe ser el Shipment ID (solo dígitos).');
-        return;
-      }
-      input.value = '';
-      this.processShipment(parsed);
-    };
-
-    input.addEventListener('keydown', (e) => {
-      if (e.key === 'Enter') {
-        e.preventDefault();
-        confirmManual();
-      }
-    });
-
-    this.setLoopActions([
-      this.makeButton('Usar cámara', { icon: 'scan', onClick: () => this.useCameraMode() }),
-      this.makeButton('Confirmar', { primary: true, icon: 'arrowRight', iconAfter: true, onClick: confirmManual }),
-    ]);
-    setTimeout(() => input.focus(), 60);
+    this.setLoopActions([]);
   }
 
   /**
@@ -3057,8 +3329,8 @@ class ContenedorAuditSession {
   }
 
   resumeForNextScan() {
-    if (this.inputMode === 'manual') {
-      this.enterManualShipment();
+    if (this.inputMode === 'handheld') {
+      this.enterHandheldShipment();
     } else {
       this.showCameraViewport();
       if (!this.scanner) this.startCamera();
@@ -3072,48 +3344,86 @@ class ContenedorAuditSession {
    */
   captureEvidence(record) {
     return new Promise((resolve) => {
-      this.scannerBody.innerHTML = `
-        <div class="empty-state" style="text-align: left;">
-          <div style="display: flex; align-items: center; gap: 8px; color: var(--color-error); font-weight: 700; margin-bottom: 8px;">
-            ${Icons.svg('alertCircle', { size: 20 })}<span>Incorrecto</span>
-          </div>
-          <p style="color: var(--color-text-muted); margin-bottom: 16px;">${record.motivo}</p>
-          <button type="button" class="photo-dropzone">
-            <span>${Icons.svg('camera', { size: 30 })}</span>
-            <span class="photo-dropzone-label">Tomar foto de evidencia</span>
-          </button>
-          <input type="file" accept="image/*" capture="environment" class="photo-input" hidden />
-          <input type="file" accept="image/*" class="photo-input-gallery" hidden />
-        </div>
-      `;
-      this.supportEl.textContent = `Shipment ${record.shipment}`;
-      this.supportEl.classList.remove('error');
-
-      const dropzone = this.scannerBody.querySelector('.photo-dropzone');
-      const cameraInput = this.scannerBody.querySelector('.photo-input');
-      const galleryInput = this.scannerBody.querySelector('.photo-input-gallery');
-      dropzone.addEventListener('click', () => cameraInput.click());
-
-      const onFile = async (input) => {
-        const file = input.files && input.files[0];
-        if (!file) return;
-        this.supportEl.textContent = 'Procesando imagen...';
-        try {
-          record.evidencia = await compressImageFile(file, { maxDim: 1280, quality: 0.6 });
-          this.vibrate(30);
-          resolve();
-        } catch (e) {
-          this.supportEl.textContent = 'No se pudo procesar la imagen. Intenta de nuevo.';
-          this.supportEl.classList.add('error');
-        }
-      };
-      cameraInput.addEventListener('change', () => onFile(cameraInput));
-      galleryInput.addEventListener('change', () => onFile(galleryInput));
-
-      this.setLoopActions([
-        this.makeButton('Elegir de galería', { icon: 'image', onClick: () => galleryInput.click() }),
-      ]);
+      this.enterEvidenceCamera(record, resolve);
     });
+  }
+
+  /**
+   * Cámara in-app (getUserMedia + obturador) para la foto de evidencia —
+   * la cámara externa (input capture) está bloqueada por el MDM en la
+   * handheld. El scanner de código de barras solo se pausa (no se detiene)
+   * antes de abrir esta cámara separada, para volver rápido al terminar.
+   */
+  async enterEvidenceCamera(record, resolve, note) {
+    if (this.scanner) this.scanner.pause();
+
+    this.scannerBody.innerHTML = `
+      <div style="text-align: left; margin-bottom: 12px;">
+        <div style="display: flex; align-items: center; gap: 8px; color: var(--color-error); font-weight: 700; margin-bottom: 8px;">
+          ${Icons.svg('alertCircle', { size: 20 })}<span>Incorrecto</span>
+        </div>
+        <p style="color: var(--color-text-muted);">${record.motivo}</p>
+      </div>
+      <div class="scanner-viewport">
+        <video class="scanner-video" playsinline muted></video>
+      </div>
+    `;
+    this.supportEl.textContent = note || `Shipment ${record.shipment} — encuadra y toma la foto.`;
+    this.supportEl.classList.toggle('error', !!note);
+
+    if (!PhotoCamera.isSupported()) {
+      this.setLoopActions([
+        this.makeButton('Reintentar', { primary: true, icon: 'refresh', onClick: () => this.enterEvidenceCamera(record, resolve) }),
+      ]);
+      return;
+    }
+
+    const video = this.scannerBody.querySelector('.scanner-video');
+    this.photoCamera = new PhotoCamera();
+    try {
+      await this.photoCamera.start(video);
+    } catch (e) {
+      this.enterEvidenceCamera(record, resolve, 'No se pudo abrir la cámara. Revisa el permiso e intenta de nuevo.');
+      return;
+    }
+
+    const viewport = this.scannerBody.querySelector('.scanner-viewport');
+    if (this.photoCamera.hasTorch()) {
+      const torchBtn = document.createElement('button');
+      torchBtn.type = 'button';
+      torchBtn.className = 'scanner-torch';
+      torchBtn.setAttribute('aria-label', 'Linterna');
+      torchBtn.innerHTML = Icons.svg('flash', { size: 20 });
+      let on = false;
+      torchBtn.addEventListener('click', async () => {
+        on = !on;
+        const ok = await this.photoCamera.setTorch(on);
+        torchBtn.classList.toggle('active', ok && on);
+      });
+      viewport.appendChild(torchBtn);
+    }
+
+    const shutter = document.createElement('button');
+    shutter.type = 'button';
+    shutter.className = 'photo-cam-shutter';
+    shutter.innerHTML = `${Icons.svg('camera', { size: 20 })}<span>Tomar foto de evidencia</span>`;
+    shutter.addEventListener('click', () => {
+      const data = this.photoCamera && this.photoCamera.capture({ maxDim: 1280, quality: 0.6 });
+      if (!data) {
+        this.supportEl.textContent = 'No se pudo capturar. Intenta de nuevo.';
+        this.supportEl.classList.add('error');
+        return;
+      }
+      record.evidencia = data;
+      this.vibrate(30);
+      if (this.photoCamera) {
+        this.photoCamera.stop();
+        this.photoCamera = null;
+      }
+      resolve();
+    });
+    this.scannerBody.appendChild(shutter);
+    this.setLoopActions([]);
   }
 
   async saveRecord(record) {
@@ -3350,7 +3660,8 @@ class CapturaApp {
     this.currentEngine = null;
     this.userEmail = null;
     this.pendingCount = 0;
-    this.folderId = null; // carpeta fija para organizar fotos
+    this.folderIds = {}; // folder_id de Grid por tipo de log (cache en memoria)
+    this.scanMode = 'handheld'; // 'handheld' (lector integrado, principal) | 'camera' — se restaura en init()
 
     // Guard de historial: intercepta el botón/gesto "atrás" del sistema
     // (Android, o el back del navegador) para navegar dentro de la app
@@ -3416,29 +3727,79 @@ class CapturaApp {
     el.addEventListener('click', () => this.showToast(this.userEmail, 'info'));
   }
 
-  async ensureFolderId() {
+  /**
+   * Folder_id de Grid para un tipo de log — una carpeta POR LOG (no una
+   * compartida), reutilizada entre dispositivos vía el State Bucket
+   * photo_folders en vez de crear una carpeta nueva en cada sincronización.
+   * No es bloqueante: si falla, la foto ya subió igual, solo sin organizar.
+   */
+  async getOrCreateFolderId(formId) {
+    if (this.folderIds[formId]) return this.folderIds[formId];
+
     try {
-      DebugConsole.log('Creando/obteniendo carpeta de fotos...', 'info');
+      const bucket = await this.gridClient.getStateBucket('photo_folders');
+      if (bucket && bucket[formId]) {
+        this.folderIds[formId] = bucket[formId];
+        return bucket[formId];
+      }
+    } catch (e) {
+      DebugConsole.log(`No se pudo leer photo_folders: ${e.message}`, 'warn');
+    }
+
+    const label = (FORMS_CONFIG[formId] && FORMS_CONFIG[formId].title) || formId;
+    try {
+      DebugConsole.log(`Creando carpeta de fotos para ${label}...`, 'info');
       const res = await this.gridClient._fetchWithTimeout(
         `${location.origin}/api/v1/folders`,
         {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
           credentials: 'include',
-          body: JSON.stringify({ name: 'Auditorías SVC' }),
+          body: JSON.stringify({ name: label }),
         }
       );
       const data = await res.json();
-      if (res.ok && data.folder_id) {
-        this.folderId = data.folder_id;
-        DebugConsole.log(`Carpeta lista: ${this.folderId}`, 'info');
-      } else {
-        DebugConsole.log(`No se pudo crear carpeta: ${res.status}`, 'warn');
+      if (!res.ok || !data.folder_id) {
+        DebugConsole.log(`No se pudo crear carpeta para ${label}: ${res.status}`, 'warn');
+        return null;
       }
+      this.folderIds[formId] = data.folder_id;
+      await this.savePhotoFolder(formId, data.folder_id);
+      DebugConsole.log(`Carpeta lista para ${label}: ${data.folder_id}`, 'info');
+      return data.folder_id;
     } catch (e) {
-      DebugConsole.log(`Error creando carpeta: ${e.message}`, 'warn');
-      // No es bloqueante — la app sigue sin carpeta, solo sin organización
+      DebugConsole.log(`Error creando carpeta para ${label}: ${e.message}`, 'warn');
+      return null;
     }
+  }
+
+  /**
+   * Guarda el folder_id recién creado en photo_folders (bucket compartido
+   * entre dispositivos) con reintento en conflicto (409). Si otro
+   * dispositivo ya resolvió ese mismo log mientras tanto, se usa el suyo
+   * en vez del propio (queda una carpeta huérfana vacía en Grid, pero
+   * eso es preferible a una carpeta distinta por dispositivo).
+   */
+  async savePhotoFolder(formId, folderId) {
+    for (let attempt = 0; attempt < 5; attempt++) {
+      const current = (await this.gridClient.getStateBucket('photo_folders')) || {};
+      if (current[formId]) {
+        this.folderIds[formId] = current[formId];
+        return;
+      }
+      const result = await this.gridClient.setStateBucket('photo_folders', { ...current, [formId]: folderId });
+      if (!result || !result.conflict) return;
+      await new Promise((r) => setTimeout(r, 200 + Math.random() * 300));
+    }
+  }
+
+  /**
+   * Modo de captura de códigos (handheld/cámara), persistido por
+   * dispositivo en IndexedDB — no localStorage, per la Biblia de Grid.
+   */
+  async setScanMode(mode) {
+    this.scanMode = mode;
+    await RecordStore.setSetting('scanMode', mode);
   }
 
   async init() {
@@ -3449,9 +3810,13 @@ class CapturaApp {
       this.renderUserAvatar();
       this.loadHeaderLogo();
 
+      const savedScanMode = await RecordStore.getSetting('scanMode');
+      if (savedScanMode === 'camera' || savedScanMode === 'handheld') {
+        this.scanMode = savedScanMode;
+      }
+
       await this.loadStatusCatalog();
       await this.loadOutboxFromStorage();
-      await this.ensureFolderId();
 
       this.renderMenu();
     } catch (e) {
@@ -3780,7 +4145,7 @@ class CapturaApp {
 
   /**
    * Sube un registro a {formId}_master con reintento en 409. Sube fotos
-   * (data: URLs) a Grid, las asocia a la carpeta de Auditorías SVC, y
+   * (data: URLs) a Grid, las asocia a la carpeta de ese tipo de log, y
    * reemplaza el data: URL con el doc_id.
    */
   async syncOneRecord(formId, record, attempt = 0) {
@@ -3793,11 +4158,14 @@ class CapturaApp {
       const docId = await this.gridClient.uploadPublicDocument(blob, `${formId}_${record.uid}.jpg`);
       record[photoField] = docId;
 
-      // Asociar la foto a la carpeta (si existe)
-      if (this.folderId) {
+      // Asociar la foto a la carpeta de este tipo de log (si se pudo
+      // resolver) — no es bloqueante, la foto ya quedó subida aunque esto
+      // falle, solo sin organizar.
+      const folderId = await this.getOrCreateFolderId(formId);
+      if (folderId) {
         try {
           await this.gridClient._fetchWithTimeout(
-            `${location.origin}/api/v1/folders/${this.folderId}/documents`,
+            `${location.origin}/api/v1/folders/${folderId}/documents`,
             {
               method: 'POST',
               headers: { 'Content-Type': 'application/json' },
