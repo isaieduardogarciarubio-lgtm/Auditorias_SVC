@@ -3278,6 +3278,12 @@ class ContenedorAuditSession {
    * (estatus + doca) y decide correcto/incorrecto. Solo se detiene a
    * pedir foto en el caso incorrecto — el caso correcto guarda y vuelve
    * a escanear de inmediato (auditoría contrarreloj).
+   *
+   * Caso especial: si el shipment NO está en el catálogo, antes de
+   * decidir se pregunta "¿Es forzado?" — un shipment forzado manualmente
+   * al contenedor (autorizado, aunque no esté registrado) se guarda como
+   * Correcto sin foto; si no es forzado, se trata como Incorrecto normal
+   * (pide foto de evidencia).
    */
   async processShipment(shipment) {
     if (this._busy) return;
@@ -3285,60 +3291,98 @@ class ContenedorAuditSession {
     if (this.scanner) this.scanner.pause();
 
     const entry = this.catalogIndex[shipment];
-    const estatusOk = !!entry && String(entry.estatus || '').trim().toLowerCase() === 'in_container';
-    const catalogDoca = entry && entry.doca != null ? String(entry.doca).trim() : '';
-    const docaOk = !catalogDoca || catalogDoca === String(this.doca).trim();
 
-    let resultado;
-    let motivo;
     if (!entry) {
-      resultado = 'Incorrecto';
-      motivo = 'Shipment no encontrado en el catálogo';
-    } else if (estatusOk && docaOk) {
-      resultado = 'Correcto';
-      motivo = '';
-    } else {
-      resultado = 'Incorrecto';
-      const reasons = [];
-      if (!estatusOk) reasons.push(`Estatus incorrecto (${entry.estatus || 'desconocido'})`);
-      if (!docaOk) reasons.push(`Doca incorrecta (catálogo: ${catalogDoca}, auditada: ${this.doca})`);
-      motivo = reasons.join(' · ');
+      const baseRecord = {
+        shipment,
+        estatus: '',
+        optimizada: '',
+        mlp: '',
+        doca_auditada: this.doca,
+        doca_catalogo: '',
+        evidencia: '',
+      };
+      const forzado = await this.promptForzado(shipment);
+      if (forzado) {
+        await this.saveCorrect({ ...baseRecord, resultado: 'Correcto', motivo: 'Forzado (no encontrado en catálogo)' });
+      } else {
+        await this.saveIncorrectWithEvidence({ ...baseRecord, resultado: 'Incorrecto', motivo: 'Shipment no encontrado en el catálogo' });
+      }
+      return;
     }
+
+    const estatusOk = String(entry.estatus || '').trim().toLowerCase() === 'in_container';
+    const catalogDoca = entry.doca != null ? String(entry.doca).trim() : '';
+    const docaOk = !catalogDoca || catalogDoca === String(this.doca).trim();
 
     const record = {
       shipment,
-      estatus: entry ? entry.estatus || '' : '',
-      optimizada: entry ? entry.optimizada || '' : '',
-      mlp: entry ? entry.mlp || '' : '',
+      estatus: entry.estatus || '',
+      optimizada: entry.optimizada || '',
+      mlp: entry.mlp || '',
       doca_auditada: this.doca,
       doca_catalogo: catalogDoca,
-      resultado,
-      motivo,
       evidencia: '',
     };
 
-    if (resultado === 'Correcto') {
-      this.vibrate(60);
-      await this.flash('success', 550);
-      await this.saveRecord(record);
-      this._busy = false;
-      this.resumeForNextScan();
+    if (estatusOk && docaOk) {
+      await this.saveCorrect({ ...record, resultado: 'Correcto', motivo: '' });
     } else {
-      this.vibrate([40, 60, 40]);
-      await this.flash('error', 550);
-      // Antes de exigir la foto, el operador puede "Reintentar escaneo":
-      // por si el código se leyó mal o escaneó el shipment equivocado, sin
-      // eso quedaría obligado a documentar como evidencia un error de
-      // lectura que no es una incidencia real.
-      const { cancelled } = await this.captureEvidence(record);
-      this._busy = false;
-      if (cancelled) {
-        this.resumeForNextScan();
-        return;
-      }
-      await this.saveRecord(record);
-      this.resumeForNextScan();
+      const reasons = [];
+      if (!estatusOk) reasons.push(`Estatus incorrecto (${entry.estatus || 'desconocido'})`);
+      if (!docaOk) reasons.push(`Doca incorrecta (catálogo: ${catalogDoca}, auditada: ${this.doca})`);
+      await this.saveIncorrectWithEvidence({ ...record, resultado: 'Incorrecto', motivo: reasons.join(' · ') });
     }
+  }
+
+  /**
+   * Pregunta si un shipment sin catálogo fue forzado manualmente al
+   * contenedor (autorizado, aunque no esté registrado). Reutiliza la
+   * pantalla del bucle (scannerBody/supportEl/setLoopActions) en vez de
+   * abrir una pantalla aparte.
+   */
+  promptForzado(shipment) {
+    return new Promise((resolve) => {
+      this.scannerBody.innerHTML = `
+        <div style="text-align: left;">
+          <div style="display: flex; align-items: center; gap: 8px; color: var(--color-error); font-weight: 700; margin-bottom: 8px;">
+            ${Icons.svg('alertCircle', { size: 20 })}<span>No encontrado en catálogo</span>
+          </div>
+          <p style="color: var(--color-text-muted);">Shipment ${shipment} no aparece en el catálogo. ¿Es forzado?</p>
+        </div>
+      `;
+      this.supportEl.textContent = 'Confirma si este shipment fue forzado manualmente al contenedor.';
+      this.supportEl.classList.remove('error');
+      this.setLoopActions([
+        this.makeButton('No', { onClick: () => resolve(false) }),
+        this.makeButton('Sí, es forzado', { primary: true, icon: 'check', iconAfter: true, onClick: () => resolve(true) }),
+      ]);
+    });
+  }
+
+  async saveCorrect(record) {
+    this.vibrate(60);
+    await this.flash('success', 550);
+    await this.saveRecord(record);
+    this._busy = false;
+    this.resumeForNextScan();
+  }
+
+  async saveIncorrectWithEvidence(record) {
+    this.vibrate([40, 60, 40]);
+    await this.flash('error', 550);
+    // Antes de exigir la foto, el operador puede "Reintentar escaneo": por
+    // si el código se leyó mal o escaneó el shipment equivocado, sin eso
+    // quedaría obligado a documentar como evidencia un error de lectura
+    // que no es una incidencia real.
+    const { cancelled } = await this.captureEvidence(record);
+    this._busy = false;
+    if (cancelled) {
+      this.resumeForNextScan();
+      return;
+    }
+    await this.saveRecord(record);
+    this.resumeForNextScan();
   }
 
   onShipmentScanned(text) {
