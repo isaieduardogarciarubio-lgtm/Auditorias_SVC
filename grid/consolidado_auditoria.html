@@ -878,6 +878,17 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   </div>
 </div>
 
+<!-- Confirm/Alert Modal (reemplaza confirm()/alert() nativos del navegador) -->
+<div class="modal" id="app-modal">
+  <div class="modal-content" style="max-width: 400px;">
+    <div class="modal-header">
+      <h3 id="app-modal-title">Confirmar</h3>
+    </div>
+    <div id="app-modal-message" style="font-size: 14px; color: var(--text-sub); margin-bottom: 20px;"></div>
+    <div id="app-modal-actions" style="display: flex; gap: 10px; justify-content: flex-end;"></div>
+  </div>
+</div>
+
 <!-- Overlay bloqueante para cualquier proceso de carga/guardado (publicar
      catálogo, actualizar logs, revisar, borrar): cubre toda la pantalla
      mientras dura la operación para que no se pueda disparar dos veces. -->
@@ -1169,6 +1180,85 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
 
     return { show, success, error, hide };
+  })();
+
+  /**
+   * AppModal — reemplaza confirm()/alert() nativos del navegador por un
+   * modal propio de la app (mismo patrón visual que el modal de fotos).
+   * Los diálogos nativos rompen la identidad visual y, dentro del iframe
+   * de Grid, pueden comportarse de forma inconsistente entre navegadores.
+   */
+  const AppModal = (() => {
+    let modalEl, titleEl, messageEl, actionsEl;
+
+    function refs() {
+      if (!modalEl) {
+        modalEl = document.getElementById('app-modal');
+        titleEl = document.getElementById('app-modal-title');
+        messageEl = document.getElementById('app-modal-message');
+        actionsEl = document.getElementById('app-modal-actions');
+      }
+      return !!modalEl;
+    }
+
+    function makeButton(label, { primary, danger } = {}) {
+      const btn = document.createElement('button');
+      btn.type = 'button';
+      btn.textContent = label;
+      btn.className = danger ? 'btn-primary' : (primary ? 'btn-primary' : 'btn-secondary');
+      if (danger) {
+        btn.style.background = 'var(--c-red)';
+        btn.style.borderColor = 'var(--c-red)';
+      }
+      return btn;
+    }
+
+    /** Reemplaza confirm(message). Resuelve true/false según el botón. */
+    function confirmDialog(message, { title = 'Confirmar', confirmText = 'Confirmar', cancelText = 'Cancelar', danger = false } = {}) {
+      return new Promise((resolve) => {
+        if (!refs()) { resolve(false); return; }
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        actionsEl.innerHTML = '';
+
+        const cancelBtn = makeButton(cancelText, {});
+        cancelBtn.addEventListener('click', () => {
+          modalEl.classList.remove('active');
+          resolve(false);
+        });
+
+        const confirmBtn = makeButton(confirmText, { primary: true, danger });
+        confirmBtn.addEventListener('click', () => {
+          modalEl.classList.remove('active');
+          resolve(true);
+        });
+
+        actionsEl.appendChild(cancelBtn);
+        actionsEl.appendChild(confirmBtn);
+        modalEl.classList.add('active');
+      });
+    }
+
+    /** Reemplaza alert(message). Resuelve al cerrar. */
+    function alertDialog(message, { title = 'Aviso', okText = 'Entendido' } = {}) {
+      return new Promise((resolve) => {
+        if (!refs()) { resolve(); return; }
+        titleEl.textContent = title;
+        messageEl.textContent = message;
+        actionsEl.innerHTML = '';
+
+        const okBtn = makeButton(okText, { primary: true });
+        okBtn.addEventListener('click', () => {
+          modalEl.classList.remove('active');
+          resolve();
+        });
+
+        actionsEl.appendChild(okBtn);
+        modalEl.classList.add('active');
+      });
+    }
+
+    return { confirm: confirmDialog, alert: alertDialog };
   })();
 
   // ==========================================================================
@@ -1961,14 +2051,16 @@ https://github.com/nodeca/pako/blob/main/LICENSE
     }
 
     async deleteRecord(logType, uid) {
-      if (!confirm('¿Estás seguro de que quieres borrar este registro? Se eliminará tanto de la tabla como del consolidado.')) {
-        return;
-      }
+      const confirmed = await AppModal.confirm(
+        '¿Estás seguro de que quieres borrar este registro? Se eliminará tanto de la tabla como del consolidado.',
+        { title: 'Borrar registro', confirmText: 'Borrar', danger: true }
+      );
+      if (!confirmed) return;
 
       const records = this.logs[logType];
       const recordIndex = records.findIndex(r => r.uid === uid);
       if (recordIndex < 0) {
-        alert('Registro no encontrado');
+        await AppModal.alert('Registro no encontrado', { title: 'Error' });
         return;
       }
 
@@ -2106,7 +2198,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       }
 
       if (allRecords.length === 0) {
-        alert('No hay registros para descargar');
+        await AppModal.alert('No hay registros para descargar', { title: 'Sin datos' });
         return;
       }
 
