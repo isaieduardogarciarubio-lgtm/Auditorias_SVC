@@ -1420,7 +1420,7 @@ class RecordStore {
         const entry = getReq.result;
         if (entry) {
           entry.synced = true;
-          entry.syncedAt = new Date().toISOString();
+          entry.syncedAt = nowMexicoISOString();
           store.put(entry);
         }
       };
@@ -1542,6 +1542,23 @@ const FORMS_CONFIG = {
     ],
   },
 };
+
+/**
+ * Timestamp de registro en Hora del Centro de México (UTC-6 fijo — México
+ * eliminó el horario de verano en 2022 para la Zona Centro, así que no hay
+ * cambio de offset a lo largo del año). Se guarda con el offset explícito
+ * en vez de "Z" (UTC) para que la hora se lea directamente en el bucket/
+ * dashboard sin depender de la zona horaria del dispositivo que la
+ * muestre; sigue siendo un ISO 8601 válido, así que new Date(ts) y las
+ * comparaciones/orden por fecha existentes no cambian de comportamiento.
+ */
+function nowMexicoISOString() {
+  const mx = new Date(Date.now() - 6 * 60 * 60 * 1000);
+  const pad = (n) => String(n).padStart(2, '0');
+  return `${mx.getUTCFullYear()}-${pad(mx.getUTCMonth() + 1)}-${pad(mx.getUTCDate())}` +
+    `T${pad(mx.getUTCHours())}:${pad(mx.getUTCMinutes())}:${pad(mx.getUTCSeconds())}` +
+    `.${String(mx.getUTCMilliseconds()).padStart(3, '0')}-06:00`;
+}
 
 /**
  * Scan parser and validator
@@ -3657,7 +3674,7 @@ class ContenedorAuditSession {
   }
 
   async saveRecord(record) {
-    const ts = new Date().toISOString();
+    const ts = nowMexicoISOString();
     const uid = RecordStore.genUid('contenedor');
     const fullRecord = { uid, ts, ...record, auditoria: this.app.userEmail };
     try {
@@ -4370,7 +4387,7 @@ class CapturaApp {
     try {
       DebugConsole.log('Procesando registro...', 'info');
 
-      const ts = new Date().toISOString();
+      const ts = nowMexicoISOString();
       const uid = RecordStore.genUid(formId);
       const record = { uid, ts, ...values, auditoria: this.userEmail };
 

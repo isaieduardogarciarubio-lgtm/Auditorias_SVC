@@ -1465,7 +1465,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
 
         this.showAlert('uploadAlert', 'info', 'Publicando catálogo...');
         const result = await this.gridClient.setStateBucket('catalogo_estatus', {
-          generatedAt: new Date().toISOString(),
+          generatedAt: nowMexicoISOString(),
           rows: rawRecords.length,
           index,
         });
@@ -2390,7 +2390,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
         ...bucket.records[idx],
         revision_estado: decision,
         revisor: (me && me.email) || '',
-        revision_ts: new Date().toISOString(),
+        revision_ts: nowMexicoISOString(),
       };
 
       const result = await this.gridClient.setStateBucket('contenedor_master', bucket);
@@ -2420,6 +2420,22 @@ https://github.com/nodeca/pako/blob/main/LICENSE
   // ==========================================================================
   // Config & Helpers
   // ==========================================================================
+
+  /**
+   * Timestamp en Hora del Centro de México (UTC-6 fijo — México eliminó el
+   * horario de verano en 2022 para la Zona Centro). Se guarda con el
+   * offset explícito en vez de "Z" (UTC) para que la hora se lea directa
+   * en el bucket/dashboard sin depender de la zona horaria de quien la
+   * muestre; sigue siendo ISO 8601 válido, así que new Date(ts) y el orden
+   * por fecha existentes no cambian de comportamiento.
+   */
+  function nowMexicoISOString() {
+    const mx = new Date(Date.now() - 6 * 60 * 60 * 1000);
+    const pad = (n) => String(n).padStart(2, '0');
+    return `${mx.getUTCFullYear()}-${pad(mx.getUTCMonth() + 1)}-${pad(mx.getUTCDate())}` +
+      `T${pad(mx.getUTCHours())}:${pad(mx.getUTCMinutes())}:${pad(mx.getUTCSeconds())}` +
+      `.${String(mx.getUTCMilliseconds()).padStart(3, '0')}-06:00`;
+  }
 
   /** Minúsculas + sin acentos, para comparar headers sin depender de tildes. */
   function normalizeText(s) {
@@ -2526,7 +2542,7 @@ https://github.com/nodeca/pako/blob/main/LICENSE
       const field = map[normalizeText(header)];
       if (field) record[field] = value;
     }
-    if (!record.ts) record.ts = new Date().toISOString();
+    if (!record.ts) record.ts = nowMexicoISOString();
     return record;
   }
 
