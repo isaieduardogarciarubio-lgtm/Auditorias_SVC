@@ -1,0 +1,345 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Pong</title>
+<style>
+  :root {
+    --color-primary: #FFD100;
+    --color-bg: #1a1a1a;
+    --color-text: #f0f0f0;
+  }
+
+  * { box-sizing: border-box; }
+
+  html, body {
+    height: 100%;
+    margin: 0;
+    background: var(--color-bg);
+    color: var(--color-text);
+    font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+    justify-content: center;
+    gap: 16px;
+    padding: 16px;
+  }
+
+  h1 {
+    margin: 0;
+    color: var(--color-primary);
+    letter-spacing: 4px;
+    font-size: 1.5rem;
+  }
+
+  #scoreboard {
+    display: flex;
+    gap: 48px;
+    font-size: 2rem;
+    font-weight: bold;
+  }
+
+  #scoreboard span { color: var(--color-primary); }
+
+  canvas {
+    background: #0d0d0d;
+    border: 2px solid var(--color-primary);
+    border-radius: 8px;
+    max-width: 100%;
+    touch-action: none;
+  }
+
+  #info {
+    opacity: 0.7;
+    font-size: 0.85rem;
+    text-align: center;
+    max-width: 480px;
+  }
+
+  #overlay {
+    position: fixed;
+    inset: 0;
+    background: rgba(0, 0, 0, 0.75);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    flex-direction: column;
+    gap: 16px;
+    text-align: center;
+    padding: 16px;
+  }
+
+  #overlay.hidden { display: none; }
+
+  #overlay h2 {
+    color: var(--color-primary);
+    margin: 0;
+    font-size: 1.8rem;
+  }
+
+  button {
+    background: var(--color-primary);
+    color: #1a1a1a;
+    border: none;
+    padding: 12px 28px;
+    font-size: 1rem;
+    font-weight: bold;
+    border-radius: 6px;
+    cursor: pointer;
+  }
+
+  button:hover { filter: brightness(1.1); }
+
+  .difficulty-row {
+    display: flex;
+    gap: 8px;
+  }
+
+  .difficulty-row button {
+    background: transparent;
+    border: 1px solid var(--color-primary);
+    color: var(--color-primary);
+    padding: 6px 14px;
+    font-size: 0.85rem;
+  }
+
+  .difficulty-row button.active {
+    background: var(--color-primary);
+    color: #1a1a1a;
+  }
+</style>
+</head>
+<body>
+  <h1>PONG</h1>
+
+  <div class="difficulty-row" id="difficultyRow">
+    <button data-level="easy">Fácil</button>
+    <button data-level="normal" class="active">Normal</button>
+    <button data-level="hard">Difícil</button>
+  </div>
+
+  <div id="scoreboard">
+    <div>Tú <span id="scoreLeft">0</span></div>
+    <div>CPU <span id="scoreRight">0</span></div>
+  </div>
+
+  <canvas id="pong" width="800" height="500"></canvas>
+
+  <p id="info">
+    Controles: ↑ / ↓ o W / S. En móvil, arrastra el dedo sobre el canvas.
+    Primero en llegar a 7 puntos gana.
+  </p>
+
+  <div id="overlay">
+    <h2 id="overlayTitle">Pong</h2>
+    <p id="overlayText">Presiona jugar para comenzar</p>
+    <button id="playBtn">Jugar</button>
+  </div>
+
+<script>
+(function () {
+  const canvas = document.getElementById('pong');
+  const ctx = canvas.getContext('2d');
+
+  const W = canvas.width;
+  const H = canvas.height;
+
+  const PADDLE_W = 12;
+  const PADDLE_H = 90;
+  const BALL_SIZE = 12;
+  const WIN_SCORE = 7;
+
+  const DIFFICULTY = {
+    easy:   { aiSpeed: 4,   aiReaction: 0.6 },
+    normal: { aiSpeed: 5.5, aiReaction: 0.85 },
+    hard:   { aiSpeed: 7.5, aiReaction: 1 },
+  };
+
+  let level = 'normal';
+
+  const state = {
+    left: { x: 20, y: H / 2 - PADDLE_H / 2, w: PADDLE_W, h: PADDLE_H, speed: 7, dy: 0 },
+    right: { x: W - 20 - PADDLE_W, y: H / 2 - PADDLE_H / 2, w: PADDLE_W, h: PADDLE_H },
+    ball: { x: W / 2, y: H / 2, r: BALL_SIZE / 2, vx: 0, vy: 0 },
+    scoreLeft: 0,
+    scoreRight: 0,
+    running: false,
+    gameOver: false,
+  };
+
+  const scoreLeftEl = document.getElementById('scoreLeft');
+  const scoreRightEl = document.getElementById('scoreRight');
+  const overlay = document.getElementById('overlay');
+  const overlayTitle = document.getElementById('overlayTitle');
+  const overlayText = document.getElementById('overlayText');
+  const playBtn = document.getElementById('playBtn');
+  const difficultyRow = document.getElementById('difficultyRow');
+
+  function resetBall(direction) {
+    state.ball.x = W / 2;
+    state.ball.y = H / 2;
+    const angle = (Math.random() * 0.6 - 0.3);
+    const speed = 6;
+    state.ball.vx = Math.cos(angle) * speed * direction;
+    state.ball.vy = Math.sin(angle) * speed;
+  }
+
+  function resetGame() {
+    state.left.y = H / 2 - PADDLE_H / 2;
+    state.right.y = H / 2 - PADDLE_H / 2;
+    state.scoreLeft = 0;
+    state.scoreRight = 0;
+    state.gameOver = false;
+    scoreLeftEl.textContent = '0';
+    scoreRightEl.textContent = '0';
+    resetBall(Math.random() < 0.5 ? 1 : -1);
+  }
+
+  const keys = {};
+  window.addEventListener('keydown', (e) => {
+    keys[e.key.toLowerCase()] = true;
+    if (['arrowup', 'arrowdown'].includes(e.key.toLowerCase())) e.preventDefault();
+  });
+  window.addEventListener('keyup', (e) => { keys[e.key.toLowerCase()] = false; });
+
+  canvas.addEventListener('touchmove', (e) => {
+    e.preventDefault();
+    const rect = canvas.getBoundingClientRect();
+    const touchY = e.touches[0].clientY - rect.top;
+    const scale = H / rect.height;
+    state.left.y = touchY * scale - PADDLE_H / 2;
+  }, { passive: false });
+
+  function clampPaddle(p) {
+    p.y = Math.max(0, Math.min(H - p.h, p.y));
+  }
+
+  function update() {
+    if (!state.running || state.gameOver) return;
+
+    if (keys['arrowup'] || keys['w']) state.left.y -= state.left.speed;
+    if (keys['arrowdown'] || keys['s']) state.left.y += state.left.speed;
+    clampPaddle(state.left);
+
+    const diff = DIFFICULTY[level];
+    const targetY = state.ball.y - PADDLE_H / 2 + (Math.random() - 0.5) * (1 - diff.aiReaction) * 100;
+    const dy = targetY - state.right.y;
+    state.right.y += Math.max(-diff.aiSpeed, Math.min(diff.aiSpeed, dy * 0.15));
+    clampPaddle(state.right);
+
+    const ball = state.ball;
+    ball.x += ball.vx;
+    ball.y += ball.vy;
+
+    if (ball.y - ball.r <= 0) {
+      ball.y = ball.r;
+      ball.vy *= -1;
+    } else if (ball.y + ball.r >= H) {
+      ball.y = H - ball.r;
+      ball.vy *= -1;
+    }
+
+    if (
+      ball.x - ball.r <= state.left.x + state.left.w &&
+      ball.x - ball.r >= state.left.x &&
+      ball.y >= state.left.y &&
+      ball.y <= state.left.y + state.left.h &&
+      ball.vx < 0
+    ) {
+      ball.x = state.left.x + state.left.w + ball.r;
+      const hitPos = (ball.y - (state.left.y + state.left.h / 2)) / (state.left.h / 2);
+      const speed = Math.min(Math.hypot(ball.vx, ball.vy) * 1.05, 15);
+      const angle = hitPos * 0.7;
+      ball.vx = Math.cos(angle) * speed;
+      ball.vy = Math.sin(angle) * speed;
+    }
+
+    if (
+      ball.x + ball.r >= state.right.x &&
+      ball.x + ball.r <= state.right.x + state.right.w &&
+      ball.y >= state.right.y &&
+      ball.y <= state.right.y + state.right.h &&
+      ball.vx > 0
+    ) {
+      ball.x = state.right.x - ball.r;
+      const hitPos = (ball.y - (state.right.y + state.right.h / 2)) / (state.right.h / 2);
+      const speed = Math.min(Math.hypot(ball.vx, ball.vy) * 1.05, 15);
+      const angle = Math.PI - hitPos * 0.7;
+      ball.vx = Math.cos(angle) * speed;
+      ball.vy = Math.sin(angle) * speed;
+    }
+
+    if (ball.x < -ball.r) {
+      state.scoreRight++;
+      scoreRightEl.textContent = state.scoreRight;
+      checkWin();
+      if (!state.gameOver) resetBall(1);
+    } else if (ball.x > W + ball.r) {
+      state.scoreLeft++;
+      scoreLeftEl.textContent = state.scoreLeft;
+      checkWin();
+      if (!state.gameOver) resetBall(-1);
+    }
+  }
+
+  function checkWin() {
+    if (state.scoreLeft >= WIN_SCORE || state.scoreRight >= WIN_SCORE) {
+      state.gameOver = true;
+      state.running = false;
+      const won = state.scoreLeft >= WIN_SCORE;
+      overlayTitle.textContent = won ? '¡Ganaste!' : 'Perdiste';
+      overlayText.textContent = `${state.scoreLeft} - ${state.scoreRight}`;
+      playBtn.textContent = 'Jugar de nuevo';
+      overlay.classList.remove('hidden');
+    }
+  }
+
+  function draw() {
+    ctx.fillStyle = '#0d0d0d';
+    ctx.fillRect(0, 0, W, H);
+
+    ctx.strokeStyle = 'rgba(255, 209, 0, 0.4)';
+    ctx.setLineDash([10, 10]);
+    ctx.beginPath();
+    ctx.moveTo(W / 2, 0);
+    ctx.lineTo(W / 2, H);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#FFD100';
+    ctx.fillRect(state.left.x, state.left.y, state.left.w, state.left.h);
+    ctx.fillRect(state.right.x, state.right.y, state.right.w, state.right.h);
+
+    ctx.beginPath();
+    ctx.arc(state.ball.x, state.ball.y, state.ball.r, 0, Math.PI * 2);
+    ctx.fill();
+  }
+
+  function loop() {
+    update();
+    draw();
+    requestAnimationFrame(loop);
+  }
+
+  playBtn.addEventListener('click', () => {
+    resetGame();
+    state.running = true;
+    overlay.classList.add('hidden');
+  });
+
+  difficultyRow.addEventListener('click', (e) => {
+    const btn = e.target.closest('button[data-level]');
+    if (!btn) return;
+    level = btn.dataset.level;
+    [...difficultyRow.children].forEach((b) => b.classList.toggle('active', b === btn));
+  });
+
+  resetGame();
+  draw();
+  requestAnimationFrame(loop);
+})();
+</script>
+</body>
+</html>
